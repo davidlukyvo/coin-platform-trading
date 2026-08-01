@@ -23,14 +23,14 @@ services:
       storage-init:
         condition: service_completed_successfully
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-coin_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-coin_platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       TZ: UTC
     volumes:
       - ${COIN_DATA_ROOT:-/data/coin-platform}/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coin_platform} -d ${POSTGRES_DB:-coin_platform}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -54,12 +54,12 @@ services:
         condition: service_completed_successfully
     environment:
       TZ: UTC
-      BINANCE_WS_BASE: ${BINANCE_WS_BASE}
-      MARKET_SYMBOLS: ${MARKET_SYMBOLS}
-      MARKET_STREAMS: ${MARKET_STREAMS}
+      BINANCE_WS_BASE: ${BINANCE_WS_BASE:-wss://stream.binance.com:9443}
+      MARKET_SYMBOLS: ${MARKET_SYMBOLS:-btcusdt,ethusdt}
+      MARKET_STREAMS: ${MARKET_STREAMS:-aggTrade,kline_1m}
       RAW_DATA_ROOT: /data/bronze
       QUARANTINE_DATA_ROOT: /data/quarantine
-      COLLECTOR_LOG_LEVEL: ${COLLECTOR_LOG_LEVEL}
+      COLLECTOR_LOG_LEVEL: ${COLLECTOR_LOG_LEVEL:-INFO}
       COLLECTOR_METRICS_PORT: ${COLLECTOR_METRICS_PORT:-8000}
       COLLECTOR_QUEUE_SIZE: ${COLLECTOR_QUEUE_SIZE:-10000}
       COLLECTOR_STALE_AFTER_SECONDS: ${COLLECTOR_STALE_AFTER_SECONDS:-60}
