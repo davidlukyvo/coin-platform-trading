@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: UTC
+    volumes:
+      - /data/coin-platform/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - coin-platform
+
+  collector:
+    build:
+      context: ./services/collector
+    restart: unless-stopped
+    environment:
+      TZ: UTC
+      BINANCE_WS_BASE: ${BINANCE_WS_BASE}
+      MARKET_SYMBOLS: ${MARKET_SYMBOLS}
+      MARKET_STREAMS: ${MARKET_STREAMS}
+      RAW_DATA_ROOT: /data/bronze
+      COLLECTOR_LOG_LEVEL: ${COLLECTOR_LOG_LEVEL}
+      COLLECTOR_METRICS_PORT: ${COLLECTOR_METRICS_PORT}
+    volumes:
+      - /data/coin-platform/bronze:/data/bronze
+      - /data/coin-platform/quarantine:/data/quarantine
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coin-platform
+
+networks:
+  coin-platform:
+    driver: bridge
