@@ -26,6 +26,7 @@ EVENTS = Counter("coin_collector_events_total", "Received market events", ["symb
 ERRORS = Counter("coin_collector_errors_total", "Collector errors", ["type"])
 RECONNECTS = Counter("coin_collector_reconnects_total", "WebSocket reconnect attempts")
 WRITTEN_BYTES = Counter("coin_collector_written_bytes_total", "RAW bytes written", ["symbol", "stream"])
+QUARANTINED = Counter("coin_collector_quarantined_total", "Events moved to quarantine", ["reason"])
 CONNECTED = Gauge("coin_collector_connected", "WebSocket connection state")
 QUEUE_DEPTH = Gauge("coin_collector_write_queue_depth", "Pending RAW records")
 CURRENT_BACKOFF = Gauge("coin_collector_reconnect_backoff_seconds", "Current reconnect delay")
@@ -40,10 +41,12 @@ class Settings:
     symbols: tuple[str, ...]
     streams: tuple[str, ...]
     raw_root: Path
+    quarantine_root: Path
     metrics_port: int
     queue_size: int
     stale_after_seconds: int
     reconnect_max_seconds: int
+    write_max_attempts: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -54,10 +57,12 @@ class Settings:
             symbols=symbols,
             streams=streams,
             raw_root=Path(os.getenv("RAW_DATA_ROOT", "/data/bronze")),
+            quarantine_root=Path(os.getenv("QUARANTINE_DATA_ROOT", "/data/quarantine")),
             metrics_port=int(os.getenv("COLLECTOR_METRICS_PORT", "8000")),
             queue_size=int(os.getenv("COLLECTOR_QUEUE_SIZE", "10000")),
             stale_after_seconds=int(os.getenv("COLLECTOR_STALE_AFTER_SECONDS", "60")),
             reconnect_max_seconds=int(os.getenv("COLLECTOR_RECONNECT_MAX_SECONDS", "60")),
+            write_max_attempts=int(os.getenv("COLLECTOR_WRITE_MAX_ATTEMPTS", "5")),
         )
         settings.validate()
         return settings
@@ -75,6 +80,8 @@ class Settings:
             raise ValueError("COLLECTOR_QUEUE_SIZE must be positive")
         if self.stale_after_seconds < 1 or self.reconnect_max_seconds < 1:
             raise ValueError("stale and reconnect values must be positive")
+        if self.write_max_attempts < 1:
+            raise ValueError("COLLECTOR_WRITE_MAX_ATTEMPTS must be positive")
         stream_names(self.symbols, self.streams)
 
 
@@ -85,6 +92,7 @@ class RuntimeState:
     last_event_at: datetime | None = None
     last_write_at: datetime | None = None
     write_failed: bool = False
+    fatal_error: str | None = None
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -112,6 +120,15 @@ def stream_names(symbols: tuple[str, ...], streams: tuple[str, ...]) -> list[str
     return result
 
 
+def parse_expected_stream(stream: str, allowed_streams: frozenset[str]) -> tuple[str, str]:
+    if stream not in allowed_streams:
+        raise ValueError(f"unexpected stream: {stream}")
+    symbol, stream_type = stream.split("@", 1)
+    if not symbol or not stream_type:
+        raise ValueError(f"malformed stream: {stream}")
+    return symbol.upper(), stream_type
+
+
 def partition_path(raw_root: Path, stream: str, event_time: datetime) -> Path:
     symbol, stream_type = stream.split("@", 1)
     return (
@@ -128,7 +145,10 @@ def partition_path(raw_root: Path, stream: str, event_time: datetime) -> Path:
 
 def build_record(item: RawItem) -> tuple[Path, str, str, str]:
     source_ms = item.payload.get("E") or item.payload.get("T")
-    event_time = datetime.fromtimestamp(source_ms / 1000, tz=timezone.utc) if source_ms else item.received_at
+    try:
+        event_time = datetime.fromtimestamp(int(source_ms) / 1000, tz=timezone.utc) if source_ms else item.received_at
+    except (TypeError, ValueError, OSError) as exc:
+        raise ValueError("invalid source timestamp") from exc
     record = {
         "exchange": "binance",
         "market_type": "spot",
@@ -150,6 +170,20 @@ def append_line(path: Path, line: str) -> None:
         handle.flush()
 
 
+def quarantine_line(item: RawItem, reason: str, error: str) -> None:
+    now = datetime.now(timezone.utc)
+    path = SETTINGS.quarantine_root / f"date={now:%Y-%m-%d}" / f"hour={now:%H}" / "failed-events.ndjson"
+    record = {
+        "quarantined_at": now.isoformat(),
+        "reason": reason,
+        "error": error,
+        "stream": item.stream,
+        "collector_receive_time": item.received_at.isoformat(),
+        "raw_payload": item.payload,
+    }
+    append_line(path, json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
+
+
 async def writer(queue: asyncio.Queue[RawItem]) -> None:
     while not shutdown_event.is_set() or not queue.empty():
         try:
@@ -158,17 +192,46 @@ async def writer(queue: asyncio.Queue[RawItem]) -> None:
             continue
         try:
             path, line, symbol, stream_type = build_record(item)
-            started = time.monotonic()
-            await asyncio.to_thread(append_line, path, line)
-            WRITE_LATENCY.observe(time.monotonic() - started)
-            WRITTEN_BYTES.labels(symbol=symbol, stream=stream_type).inc(len(line.encode("utf-8")))
-            LAST_WRITE_TS.labels(symbol=symbol, stream=stream_type).set(time.time())
-            state.last_write_at = datetime.now(timezone.utc)
-            state.write_failed = False
-        except (OSError, ValueError, TypeError):
+            last_error: Exception | None = None
+            for attempt in range(1, SETTINGS.write_max_attempts + 1):
+                try:
+                    started = time.monotonic()
+                    await asyncio.to_thread(append_line, path, line)
+                    WRITE_LATENCY.observe(time.monotonic() - started)
+                    WRITTEN_BYTES.labels(symbol=symbol, stream=stream_type).inc(len(line.encode("utf-8")))
+                    LAST_WRITE_TS.labels(symbol=symbol, stream=stream_type).set(time.time())
+                    state.last_write_at = datetime.now(timezone.utc)
+                    state.write_failed = False
+                    last_error = None
+                    break
+                except OSError as exc:
+                    last_error = exc
+                    ERRORS.labels(type="write_retry").inc()
+                    state.write_failed = True
+                    logger.exception("RAW write attempt %s/%s failed", attempt, SETTINGS.write_max_attempts)
+                    if attempt < SETTINGS.write_max_attempts:
+                        await asyncio.sleep(min(2 ** (attempt - 1), 10))
+            if last_error is not None:
+                try:
+                    await asyncio.to_thread(quarantine_line, item, "raw_write_failed", repr(last_error))
+                    QUARANTINED.labels(reason="raw_write_failed").inc()
+                    ERRORS.labels(type="write_quarantined").inc()
+                    logger.error("RAW event moved to quarantine after exhausted retries")
+                except OSError as quarantine_error:
+                    state.fatal_error = f"RAW and quarantine writes failed: {quarantine_error!r}"
+                    ERRORS.labels(type="quarantine_write").inc()
+                    logger.critical(state.fatal_error, exc_info=True)
+                    shutdown_event.set()
+        except (ValueError, TypeError) as exc:
             state.write_failed = True
-            ERRORS.labels(type="write").inc()
-            logger.exception("RAW write failed")
+            ERRORS.labels(type="record_validation").inc()
+            try:
+                await asyncio.to_thread(quarantine_line, item, "record_validation_failed", repr(exc))
+                QUARANTINED.labels(reason="record_validation_failed").inc()
+            except OSError as quarantine_error:
+                state.fatal_error = f"Validation quarantine write failed: {quarantine_error!r}"
+                logger.critical(state.fatal_error, exc_info=True)
+                shutdown_event.set()
         finally:
             queue.task_done()
             QUEUE_DEPTH.set(queue.qsize())
@@ -176,6 +239,7 @@ async def writer(queue: asyncio.Queue[RawItem]) -> None:
 
 async def collect(queue: asyncio.Queue[RawItem]) -> None:
     streams = stream_names(SETTINGS.symbols, SETTINGS.streams)
+    allowed_streams = frozenset(streams)
     url = f"{SETTINGS.ws_base}/stream?streams={'/'.join(streams)}"
     backoff = 1.0
     while not shutdown_event.is_set():
@@ -204,9 +268,10 @@ async def collect(queue: asyncio.Queue[RawItem]) -> None:
                         payload = envelope["data"]
                         if not isinstance(stream, str) or not isinstance(payload, dict):
                             raise ValueError("invalid Binance envelope")
+                        symbol, stream_type = parse_expected_stream(stream, allowed_streams)
                     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                         ERRORS.labels(type="decode_or_protocol").inc()
-                        logger.exception("Invalid WebSocket envelope")
+                        logger.exception("Invalid or unexpected WebSocket envelope")
                         continue
 
                     try:
@@ -216,9 +281,8 @@ async def collect(queue: asyncio.Queue[RawItem]) -> None:
                         logger.error("RAW queue full; disconnecting to avoid silent data loss")
                         raise RuntimeError("RAW queue full")
 
-                    symbol, stream_type = stream.split("@", 1)
-                    EVENTS.labels(symbol=symbol.upper(), stream=stream_type).inc()
-                    LAST_EVENT_TS.labels(symbol=symbol.upper(), stream=stream_type).set(received_at.timestamp())
+                    EVENTS.labels(symbol=symbol, stream=stream_type).inc()
+                    LAST_EVENT_TS.labels(symbol=symbol, stream=stream_type).set(received_at.timestamp())
                     QUEUE_DEPTH.set(queue.qsize())
                     state.last_event_at = received_at
                     if not state.connection_ready:
@@ -249,13 +313,14 @@ async def collect(queue: asyncio.Queue[RawItem]) -> None:
 async def healthz(_: web.Request) -> web.Response:
     now = datetime.now(timezone.utc)
     stale = state.last_event_at is None or (now - state.last_event_at).total_seconds() > SETTINGS.stale_after_seconds
-    healthy = state.connected and state.connection_ready and not stale and not state.write_failed
+    healthy = state.connected and state.connection_ready and not stale and not state.write_failed and state.fatal_error is None
     return web.json_response(
         {
             "status": "healthy" if healthy else "unhealthy",
             "connected": state.connected,
             "connection_ready": state.connection_ready,
             "write_failed": state.write_failed,
+            "fatal_error": state.fatal_error,
             "last_event_at": state.last_event_at.isoformat() if state.last_event_at else None,
             "last_write_at": state.last_write_at.isoformat() if state.last_write_at else None,
         },
@@ -288,13 +353,14 @@ async def main() -> None:
         except NotImplementedError:
             signal.signal(sig, lambda *_: shutdown_event.set())
 
-    SETTINGS.raw_root.mkdir(parents=True, exist_ok=True)
-    probe = SETTINGS.raw_root / ".write-probe"
-    try:
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
-    except OSError as exc:
-        raise RuntimeError(f"RAW_DATA_ROOT is not writable: {SETTINGS.raw_root}") from exc
+    for root in (SETTINGS.raw_root, SETTINGS.quarantine_root):
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / ".write-probe"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except OSError as exc:
+            raise RuntimeError(f"Data root is not writable: {root}") from exc
 
     queue: asyncio.Queue[RawItem] = asyncio.Queue(maxsize=SETTINGS.queue_size)
     collector_task = asyncio.create_task(collect(queue), name="collector")
@@ -308,6 +374,8 @@ async def main() -> None:
         await asyncio.wait_for(queue.join(), timeout=30)
     except asyncio.TimeoutError:
         logger.error("Timed out draining RAW queue during shutdown")
+    writer_task.cancel()
+    http_task.cancel()
     await asyncio.gather(writer_task, http_task, return_exceptions=True)
 
 
