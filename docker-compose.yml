@@ -10,6 +10,7 @@ services:
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         test -w /host/bronze
+        test -w /host/quarantine
         test -w /host/postgres
     volumes:
       - ${COIN_DATA_ROOT:-/data/coin-platform}:/host
@@ -57,11 +58,13 @@ services:
       MARKET_SYMBOLS: ${MARKET_SYMBOLS}
       MARKET_STREAMS: ${MARKET_STREAMS}
       RAW_DATA_ROOT: /data/bronze
+      QUARANTINE_DATA_ROOT: /data/quarantine
       COLLECTOR_LOG_LEVEL: ${COLLECTOR_LOG_LEVEL}
       COLLECTOR_METRICS_PORT: ${COLLECTOR_METRICS_PORT:-8000}
       COLLECTOR_QUEUE_SIZE: ${COLLECTOR_QUEUE_SIZE:-10000}
       COLLECTOR_STALE_AFTER_SECONDS: ${COLLECTOR_STALE_AFTER_SECONDS:-60}
       COLLECTOR_RECONNECT_MAX_SECONDS: ${COLLECTOR_RECONNECT_MAX_SECONDS:-60}
+      COLLECTOR_WRITE_MAX_ATTEMPTS: ${COLLECTOR_WRITE_MAX_ATTEMPTS:-5}
     volumes:
       - ${COIN_DATA_ROOT:-/data/coin-platform}/bronze:/data/bronze
       - ${COIN_DATA_ROOT:-/data/coin-platform}/quarantine:/data/quarantine
