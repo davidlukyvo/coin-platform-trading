@@ -1,0 +1,17 @@
+groups:
+  - name: containers
+    rules:
+      - alert: ContainerDown
+        expr: time() - container_last_seen{name=~"coin-platform-(collector|postgres)-1"} > 60
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Required container is not reporting"}
+      - alert: ContainerRestarted
+        expr: changes(container_start_time_seconds{name=~"coin-platform-(collector|postgres)-1"}[10m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Required container start time changed"}
+      - alert: PrometheusTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Prometheus scrape target is down"}

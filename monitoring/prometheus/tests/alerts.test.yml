@@ -1,0 +1,17 @@
+rule_files:
+  - ../alerts/collector.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: coin_collector_connected
+        values: 1 0 0 0 1
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: CollectorDisconnected
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: "Collector disconnected for two minutes"}
+      - eval_time: 4m
+        alertname: CollectorDisconnected
+        exp_alerts: []

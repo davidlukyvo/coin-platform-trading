@@ -1,0 +1,23 @@
+groups:
+  - name: host
+    rules:
+      - alert: HostMemoryPressure
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Available host memory is below 10%"}
+      - alert: HostDiskWarning
+        expr: 1 - node_filesystem_avail_bytes{mountpoint="/data",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/data",fstype!~"tmpfs|overlay"} >= 0.70
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "/data usage is at least 70%"}
+      - alert: HostDiskCritical
+        expr: 1 - node_filesystem_avail_bytes{mountpoint="/data",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/data",fstype!~"tmpfs|overlay"} >= 0.85
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "/data usage is at least 85%"}
+      - alert: HostInodeWarning
+        expr: 1 - node_filesystem_files_free{mountpoint="/data",fstype!~"tmpfs|overlay"} / node_filesystem_files{mountpoint="/data",fstype!~"tmpfs|overlay"} >= 0.70
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "/data inode usage is at least 70%"}

@@ -12,6 +12,7 @@ Self-hosted cryptocurrency market-data and research platform for a Windows 11 Hy
 - Immutable newline-delimited RAW event files
 - PostgreSQL for metadata foundation
 - Prometheus-compatible collector metrics
+- Provisioned Prometheus and Grafana monitoring dashboards
 - No exchange credentials and no live trading
 
 ## Architecture
@@ -88,3 +89,13 @@ rollback procedures.
 - Any future execution service must pass through an independent risk engine.
 
 See `AGENTS.md`, `docs/architecture.md`, and `docs/roadmap.md` before making major changes.
+
+## Monitoring
+
+Phase B monitoring is provisioned from `monitoring/` and stores persistent data
+under `/data/coin-platform/{prometheus,grafana}`. See
+[`docs/MONITORING_RUNBOOK.md`](docs/MONITORING_RUNBOOK.md) and run:
+
+```bash
+./scripts/audit-phase-b.sh
+```
