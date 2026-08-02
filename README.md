@@ -13,6 +13,7 @@ Self-hosted cryptocurrency market-data and research platform for a Windows 11 Hy
 - PostgreSQL for metadata foundation
 - Prometheus-compatible collector metrics
 - Provisioned Prometheus and Grafana monitoring dashboards
+- Incremental Bronze-to-Silver Parquet pipeline with persistent checkpoints
 - No exchange credentials and no live trading
 
 ## Architecture
@@ -99,3 +100,9 @@ under `/data/coin-platform/{prometheus,grafana}`. See
 ```bash
 ./scripts/audit-phase-b.sh
 ```
+
+## Silver pipeline
+
+Silver processing is documented in
+[`docs/SILVER_PIPELINE_RUNBOOK.md`](docs/SILVER_PIPELINE_RUNBOOK.md). Validate it
+with `./scripts/audit-phase-c.sh`; Bronze remains read-only and immutable.

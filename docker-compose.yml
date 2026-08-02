@@ -6,12 +6,13 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
         chown -R 472:472 /host/grafana
         chown -R 65534:65534 /host/node-exporter-textfile
+        chown -R 10002:10002 /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -90,6 +91,48 @@ services:
     networks:
       - coin-platform
 
+  silver-processor:
+    build:
+      context: ./services/silver-processor
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      collector:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      BRONZE_ROOT: /data/bronze
+      SILVER_ROOT: /data/silver
+      SILVER_QUARANTINE_ROOT: /data/silver-quarantine
+      SILVER_REPORT_ROOT: /data/reports/silver
+      SILVER_CHECKPOINT: /data/checkpoints/silver/state.db
+      SILVER_INTERVAL_SECONDS: ${SILVER_INTERVAL_SECONDS:-60}
+      SILVER_BATCH_MAX_BYTES: ${SILVER_BATCH_MAX_BYTES:-16777216}
+      SILVER_MIN_BATCH_BYTES: ${SILVER_MIN_BATCH_BYTES:-4194304}
+      SILVER_METRICS_PORT: ${SILVER_METRICS_PORT:-8010}
+      SILVER_LOG_LEVEL: ${SILVER_LOG_LEVEL:-INFO}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/bronze:/data/bronze:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver-quarantine:/data/silver-quarantine
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/checkpoints:/data/checkpoints
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/reports:/data/reports
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('SILVER_METRICS_PORT','8010') + '/healthz',timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 384m
+    cpus: 0.75
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
   prometheus:
     image: prom/prometheus:v3.10.0
     restart: unless-stopped
@@ -97,6 +140,8 @@ services:
       storage-init:
         condition: service_completed_successfully
       collector:
+        condition: service_healthy
+      silver-processor:
         condition: service_healthy
       node-exporter:
         condition: service_started
