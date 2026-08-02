@@ -1,0 +1,10 @@
+{
+  "annotations":{"list":[]},"editable":true,"graphTooltip":1,"id":null,
+  "panels":[
+    {"type":"timeseries","title":"OOS Net Return","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"strategy_backtest_net_return{segment=\"out_of_sample\"}","legendFormat":"{{symbol}} {{strategy}} {{confidence}}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit"},"overrides":[]}},
+    {"type":"timeseries","title":"OOS Maximum Drawdown","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"strategy_backtest_max_drawdown{segment=\"out_of_sample\"}","legendFormat":"{{symbol}} {{strategy}}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit"},"overrides":[]}},
+    {"type":"table","title":"OOS Sharpe (exploratory until 30 days)","gridPos":{"h":9,"w":24,"x":0,"y":8},"targets":[{"expr":"strategy_backtest_sharpe{segment=\"out_of_sample\"}","format":"table","instant":true,"refId":"A"}],"options":{"showHeader":true}}
+  ],
+  "refresh":"1m","schemaVersion":42,"tags":["trading","phase-d","research"],"templating":{"list":[]},
+  "time":{"from":"now-24h","to":"now"},"timezone":"utc","title":"Strategy Research & Backtesting","uid":"strategy-research","version":1
+}
