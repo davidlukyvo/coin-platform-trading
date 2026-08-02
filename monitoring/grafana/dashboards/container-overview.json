@@ -1,0 +1,10 @@
+{
+  "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Container Overview","uid":"coin-containers","timezone":"utc","refresh":"15s","time":{"from":"now-6h","to":"now"},
+  "panels":[
+    {"id":1,"type":"stat","title":"Containers reporting","gridPos":{"x":0,"y":0,"w":6,"h":5},"targets":[{"expr":"count(container_last_seen{name=~\"coin-platform-.*\"})"}]},
+    {"id":2,"type":"timeseries","title":"CPU cores","gridPos":{"x":6,"y":0,"w":18,"h":8},"targets":[{"expr":"sum by (name) (rate(container_cpu_usage_seconds_total{name=~\"coin-platform-.*\"}[5m]))","legendFormat":"{{name}}"}]},
+    {"id":3,"type":"timeseries","title":"Memory","gridPos":{"x":0,"y":8,"w":12,"h":8},"targets":[{"expr":"container_memory_working_set_bytes{name=~\"coin-platform-.*\"}","legendFormat":"{{name}}"}]},
+    {"id":4,"type":"timeseries","title":"Network RX/TX","gridPos":{"x":12,"y":8,"w":12,"h":8},"targets":[{"expr":"sum by (name) (rate(container_network_receive_bytes_total{name=~\"coin-platform-.*\"}[5m]))","legendFormat":"RX {{name}}"},{"expr":"sum by (name) (rate(container_network_transmit_bytes_total{name=~\"coin-platform-.*\"}[5m]))","legendFormat":"TX {{name}}"}]},
+    {"id":5,"type":"table","title":"Container start time","gridPos":{"x":0,"y":16,"w":24,"h":7},"targets":[{"expr":"container_start_time_seconds{name=~\"coin-platform-.*\"}","format":"table","instant":true}]}
+  ]
+}

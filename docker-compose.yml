@@ -1,0 +1,283 @@
+services:
+  storage-init:
+    image: alpine:3.20
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
+        chown -R 10001:10001 /host/bronze /host/quarantine
+        chown -R 70:70 /host/postgres
+        chown -R 65534:65534 /host/prometheus
+        chown -R 472:472 /host/grafana
+        chown -R 65534:65534 /host/node-exporter-textfile
+        chown -R 10002:10002 /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
+        test -w /host/bronze
+        test -w /host/quarantine
+        test -w /host/postgres
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}:/host
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-coin_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-coin_platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      TZ: UTC
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-coin_platform} -d ${POSTGRES_DB:-coin_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 2g
+    cpus: 1.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - coin-platform
+
+  collector:
+    build:
+      context: ./services/collector
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      TZ: UTC
+      BINANCE_WS_BASE: ${BINANCE_WS_BASE:-wss://stream.binance.com:9443}
+      MARKET_SYMBOLS: ${MARKET_SYMBOLS:-btcusdt,ethusdt}
+      MARKET_STREAMS: ${MARKET_STREAMS:-aggTrade,kline_1m}
+      RAW_DATA_ROOT: /data/bronze
+      QUARANTINE_DATA_ROOT: /data/quarantine
+      COLLECTOR_LOG_LEVEL: ${COLLECTOR_LOG_LEVEL:-INFO}
+      COLLECTOR_METRICS_PORT: ${COLLECTOR_METRICS_PORT:-8000}
+      COLLECTOR_QUEUE_SIZE: ${COLLECTOR_QUEUE_SIZE:-10000}
+      COLLECTOR_STALE_AFTER_SECONDS: ${COLLECTOR_STALE_AFTER_SECONDS:-60}
+      COLLECTOR_RECONNECT_MAX_SECONDS: ${COLLECTOR_RECONNECT_MAX_SECONDS:-60}
+      COLLECTOR_WRITE_MAX_ATTEMPTS: ${COLLECTOR_WRITE_MAX_ATTEMPTS:-5}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/bronze:/data/bronze
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/quarantine:/data/quarantine
+    ports:
+      - "127.0.0.1:${COLLECTOR_METRICS_PORT:-8000}:${COLLECTOR_METRICS_PORT:-8000}"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('COLLECTOR_METRICS_PORT','8000') + '/healthz', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 2g
+    cpus: 2.0
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - coin-platform
+
+  silver-processor:
+    build:
+      context: ./services/silver-processor
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      collector:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      BRONZE_ROOT: /data/bronze
+      SILVER_ROOT: /data/silver
+      SILVER_QUARANTINE_ROOT: /data/silver-quarantine
+      SILVER_REPORT_ROOT: /data/reports/silver
+      SILVER_CHECKPOINT: /data/checkpoints/silver/state.db
+      SILVER_INTERVAL_SECONDS: ${SILVER_INTERVAL_SECONDS:-60}
+      SILVER_BATCH_MAX_BYTES: ${SILVER_BATCH_MAX_BYTES:-16777216}
+      SILVER_MIN_BATCH_BYTES: ${SILVER_MIN_BATCH_BYTES:-4194304}
+      SILVER_METRICS_PORT: ${SILVER_METRICS_PORT:-8010}
+      SILVER_LOG_LEVEL: ${SILVER_LOG_LEVEL:-INFO}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/bronze:/data/bronze:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver-quarantine:/data/silver-quarantine
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/checkpoints:/data/checkpoints
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/reports:/data/reports
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('SILVER_METRICS_PORT','8010') + '/healthz',timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 384m
+    cpus: 0.75
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  prometheus:
+    image: prom/prometheus:v3.10.0
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      collector:
+        condition: service_healthy
+      silver-processor:
+        condition: service_healthy
+      node-exporter:
+        condition: service_started
+      cadvisor:
+        condition: service_started
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts:/etc/prometheus/alerts:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/prometheus:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 384m
+    cpus: 0.75
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_DOMAIN: ${GRAFANA_SERVER_DOMAIN:-localhost}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/grafana:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana-dashboards:ro
+    ports:
+      - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 384m
+    cpus: 0.75
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.11.1
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.textfile.directory=/textfile
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/node-exporter-textfile:/textfile:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9100/metrics >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 96m
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 192m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  storage-metrics:
+    image: alpine:3.20
+    restart: unless-stopped
+    user: "0:0"
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    command: ["/bin/sh", "/scripts/update-storage-metrics.sh"]
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}:/coin-data:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/node-exporter-textfile:/textfile
+      - ./scripts/update-storage-metrics.sh:/scripts/update-storage-metrics.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /textfile/coin_storage.prom && find /textfile/coin_storage.prom -mmin -2 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 64m
+    cpus: 0.2
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+    networks:
+      - coin-platform
+
+networks:
+  coin-platform:
+    driver: bridge

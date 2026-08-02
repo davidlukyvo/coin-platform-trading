@@ -1,0 +1,14 @@
+{
+  "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Silver Pipeline Overview","uid":"coin-silver","timezone":"utc","refresh":"15s","time":{"from":"now-6h","to":"now"},
+  "panels":[
+    {"id":1,"type":"stat","title":"Processor UP","gridPos":{"x":0,"y":0,"w":4,"h":5},"targets":[{"expr":"up{job=\"silver-processor\"}"}]},
+    {"id":2,"type":"stat","title":"Lag seconds","gridPos":{"x":4,"y":0,"w":4,"h":5},"targets":[{"expr":"silver_lag_seconds"}]},
+    {"id":3,"type":"stat","title":"Seconds since success","gridPos":{"x":8,"y":0,"w":5,"h":5},"targets":[{"expr":"time()-silver_last_success_unixtime"}]},
+    {"id":4,"type":"stat","title":"Checkpoint offset","gridPos":{"x":13,"y":0,"w":5,"h":5},"targets":[{"expr":"silver_checkpoint_offset"}]},
+    {"id":5,"type":"stat","title":"Silver bytes","gridPos":{"x":18,"y":0,"w":6,"h":5},"targets":[{"expr":"coin_platform_storage_bytes{area=\"silver\"}"}]},
+    {"id":6,"type":"timeseries","title":"Processing and write rate","gridPos":{"x":0,"y":5,"w":12,"h":8},"targets":[{"expr":"rate(silver_records_processed_total[5m])","legendFormat":"processed"},{"expr":"rate(silver_records_written_total[5m])","legendFormat":"written"}]},
+    {"id":7,"type":"timeseries","title":"Rejected and duplicates","gridPos":{"x":12,"y":5,"w":12,"h":8},"targets":[{"expr":"rate(silver_records_rejected_total[5m])","legendFormat":"rejected"},{"expr":"rate(silver_duplicates_total[5m])","legendFormat":"duplicates"}]},
+    {"id":8,"type":"timeseries","title":"Batch duration p95","gridPos":{"x":0,"y":13,"w":12,"h":8},"targets":[{"expr":"histogram_quantile(0.95,sum by(le)(rate(silver_batch_duration_seconds_bucket[5m])))"}]},
+    {"id":9,"type":"timeseries","title":"Silver storage growth","gridPos":{"x":12,"y":13,"w":12,"h":8},"targets":[{"expr":"deriv(coin_platform_storage_bytes{area=\"silver\"}[1h])","legendFormat":"bytes/s"}]}
+  ]
+}

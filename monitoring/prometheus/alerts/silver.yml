@@ -1,0 +1,32 @@
+groups:
+  - name: silver
+    rules:
+      - alert: SilverProcessorDown
+        expr: up{job="silver-processor"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Silver processor target is down"}
+      - alert: SilverPipelineStale
+        expr: time() - silver_last_success_unixtime > 180
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "Silver has no successful batch for three minutes"}
+      - alert: SilverLagHigh
+        expr: silver_lag_seconds > 5400
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Silver processing lag exceeds 90 minutes"}
+      - alert: SilverWriteError
+        expr: increase(silver_write_errors_total[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: "Silver processor reported a write error"}
+      - alert: SilverRejectRateHigh
+        expr: rate(silver_records_rejected_total[15m]) / clamp_min(rate(silver_records_processed_total[15m]), 0.001) > 0.01
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Silver reject rate exceeds 1%"}
+      - alert: SilverDiskWarning
+        expr: 1 - node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"} >= 0.70
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "/data usage threatens Silver capacity"}

@@ -1,0 +1,26 @@
+groups:
+  - name: collector
+    rules:
+      - alert: CollectorDisconnected
+        expr: coin_collector_connected == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Collector disconnected for two minutes"}
+      - alert: CollectorStale
+        expr: time() - max(coin_collector_last_write_unixtime) > 120
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "No successful RAW write for more than two minutes"}
+      - alert: CollectorQueueGrowing
+        expr: coin_collector_write_queue_depth > 100
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "Collector write queue remains above 100"}
+      - alert: CollectorWriteError
+        expr: increase(coin_collector_errors_total{type=~"write.*|quarantine_write"}[5m]) > 0
+        labels: {severity: critical}
+        annotations: {summary: "Collector reported a write-path error"}
+      - alert: CollectorQuarantineDetected
+        expr: increase(coin_collector_quarantined_total[5m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Collector quarantined a market event"}

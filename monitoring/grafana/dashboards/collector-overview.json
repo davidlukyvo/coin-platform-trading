@@ -1,0 +1,13 @@
+{
+  "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Collector Overview","uid":"coin-collector","timezone":"utc","refresh":"15s","time":{"from":"now-6h","to":"now"},
+  "panels":[
+    {"id":1,"type":"stat","title":"Connected","gridPos":{"x":0,"y":0,"w":4,"h":5},"targets":[{"expr":"coin_collector_connected"}]},
+    {"id":2,"type":"stat","title":"Queue depth","gridPos":{"x":4,"y":0,"w":4,"h":5},"targets":[{"expr":"coin_collector_write_queue_depth"}]},
+    {"id":3,"type":"stat","title":"Reconnects","gridPos":{"x":8,"y":0,"w":4,"h":5},"targets":[{"expr":"coin_collector_reconnects_total"}]},
+    {"id":4,"type":"stat","title":"Seconds since last write","gridPos":{"x":12,"y":0,"w":6,"h":5},"targets":[{"expr":"time()-max(coin_collector_last_write_unixtime)"}]},
+    {"id":5,"type":"stat","title":"Active alerts","gridPos":{"x":18,"y":0,"w":6,"h":5},"targets":[{"expr":"count(ALERTS{alertstate=\"firing\"})"}]},
+    {"id":6,"type":"timeseries","title":"Event rate / second","gridPos":{"x":0,"y":5,"w":24,"h":8},"targets":[{"expr":"rate(coin_collector_events_total[5m])","legendFormat":"{{symbol}} {{stream}}"}]},
+    {"id":7,"type":"timeseries","title":"Errors and quarantine","gridPos":{"x":0,"y":13,"w":12,"h":8},"targets":[{"expr":"increase(coin_collector_errors_total[5m])","legendFormat":"error {{type}}"},{"expr":"increase(coin_collector_quarantined_total[5m])","legendFormat":"quarantine {{reason}}"}]},
+    {"id":8,"type":"timeseries","title":"Total events","gridPos":{"x":12,"y":13,"w":12,"h":8},"targets":[{"expr":"coin_collector_events_total","legendFormat":"{{symbol}} {{stream}}"}]}
+  ]
+}

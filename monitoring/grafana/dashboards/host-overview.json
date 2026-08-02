@@ -1,0 +1,12 @@
+{
+  "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Host Overview","uid":"coin-host","timezone":"utc","refresh":"15s","time":{"from":"now-6h","to":"now"},
+  "panels":[
+    {"id":1,"type":"timeseries","title":"CPU usage %","gridPos":{"x":0,"y":0,"w":12,"h":8},"targets":[{"expr":"100 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100","legendFormat":"CPU"}]},
+    {"id":2,"type":"timeseries","title":"Load average","gridPos":{"x":12,"y":0,"w":12,"h":8},"targets":[{"expr":"node_load1","legendFormat":"1m"},{"expr":"node_load5","legendFormat":"5m"}]},
+    {"id":3,"type":"timeseries","title":"Memory and swap","gridPos":{"x":0,"y":8,"w":12,"h":8},"targets":[{"expr":"node_memory_MemAvailable_bytes","legendFormat":"RAM available"},{"expr":"node_memory_SwapTotal_bytes-node_memory_SwapFree_bytes","legendFormat":"Swap used"}]},
+    {"id":4,"type":"timeseries","title":"Network bytes/s","gridPos":{"x":12,"y":8,"w":12,"h":8},"targets":[{"expr":"sum(rate(node_network_receive_bytes_total{device!~\"lo|veth.*\"}[5m]))","legendFormat":"RX"},{"expr":"sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*\"}[5m]))","legendFormat":"TX"}]},
+    {"id":5,"type":"stat","title":"Host uptime seconds","gridPos":{"x":0,"y":16,"w":8,"h":5},"targets":[{"expr":"time()-node_boot_time_seconds"}]},
+    {"id":6,"type":"gauge","title":"/data usage %","gridPos":{"x":8,"y":16,"w":8,"h":5},"targets":[{"expr":"100*(1-node_filesystem_avail_bytes{mountpoint=\"/data\"}/node_filesystem_size_bytes{mountpoint=\"/data\"})"}]},
+    {"id":7,"type":"gauge","title":"/data inode usage %","gridPos":{"x":16,"y":16,"w":8,"h":5},"targets":[{"expr":"100*(1-node_filesystem_files_free{mountpoint=\"/data\"}/node_filesystem_files{mountpoint=\"/data\"})"}]}
+  ]
+}
