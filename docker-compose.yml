@@ -6,13 +6,14 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
         chown -R 472:472 /host/grafana
         chown -R 65534:65534 /host/node-exporter-textfile
         chown -R 10002:10002 /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
+        chown -R 10003:10003 /host/research
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -127,6 +128,37 @@ services:
     mem_limit: 384m
     cpus: 0.75
     stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  strategy-research:
+    build:
+      context: ./services/strategy-research
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      RESEARCH_ROOT: /data/research
+      RESEARCH_INTERVAL_SECONDS: ${RESEARCH_INTERVAL_SECONDS:-21600}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/research:/data/research
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    mem_limit: 512m
+    cpus: 1.0
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
