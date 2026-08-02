@@ -20,7 +20,7 @@ Self-hosted cryptocurrency market-data and research platform for a Windows 11 Hy
 Binance WebSocket
        |
        v
-Python Collector ----> /data/bronze/binance/...
+Python Collector ----> /data/coin-platform/bronze/binance/...
        |
        +-------------> health and Prometheus metrics
 
@@ -33,7 +33,7 @@ The first implementation deliberately stores RAW events before introducing Parqu
 ## Local setup
 
 1. Install Docker Engine and Docker Compose on Ubuntu Server 24.04.
-2. Clone this private repository.
+2. Clone the repository and select the intended feature or release branch.
 3. Copy `.env.example` to `.env` and change local passwords.
 4. Create the data directories:
 
@@ -54,6 +54,30 @@ docker compose up -d --build
 curl http://localhost:8000/healthz
 curl http://localhost:8000/metrics
 ```
+
+7. Run the read-only Phase A audit:
+
+```bash
+./scripts/audit-phase-a.sh
+```
+
+## Operations
+
+Common commands are intentionally run from the repository root:
+
+```bash
+docker compose up -d --build       # start or update
+docker compose stop                # graceful stop; does not delete data
+docker compose ps -a               # status
+curl -fsS http://127.0.0.1:8000/healthz
+curl -fsS http://127.0.0.1:8000/metrics
+```
+
+Do not use `docker compose down -v`: owner RAW data and PostgreSQL data must
+never be removed as part of routine operations. See
+[`docs/operations-runbook.md`](docs/operations-runbook.md) for health checks,
+RAW and disk checks, unhealthy-service recovery, post-reboot validation, and
+rollback procedures.
 
 ## Safety boundaries
 
