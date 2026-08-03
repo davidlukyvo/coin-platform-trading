@@ -25,6 +25,15 @@ services:
     labels:
       deployment.site: bamboo
 
+  strategy-research:
+    mem_limit: 384m
+    cpus: 0.5
+    environment:
+      DEPLOYMENT_SITE: bamboo
+      COLLECTOR_INSTANCE: trading-bamboo
+    labels:
+      deployment.site: bamboo
+
   prometheus:
     mem_limit: 384m
     cpus: 0.5
