@@ -1,10 +1,10 @@
 {
   "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Storage Overview","uid":"coin-storage","timezone":"utc","refresh":"1m","time":{"from":"now-24h","to":"now"},
   "panels":[
-    {"id":1,"type":"gauge","title":"/data usage %","gridPos":{"x":0,"y":0,"w":8,"h":7},"targets":[{"expr":"100*(1-node_filesystem_avail_bytes{mountpoint=\"/data\"}/node_filesystem_size_bytes{mountpoint=\"/data\"})"}]},
+    {"id":1,"type":"gauge","title":"Bamboo root filesystem usage %","gridPos":{"x":0,"y":0,"w":8,"h":7},"targets":[{"expr":"100*(1-node_filesystem_avail_bytes{mountpoint=\"/\"}/node_filesystem_size_bytes{mountpoint=\"/\"})"}]},
     {"id":2,"type":"stat","title":"RAW bronze bytes","gridPos":{"x":8,"y":0,"w":8,"h":7},"targets":[{"expr":"coin_platform_storage_bytes{area=\"bronze\"}"}]},
     {"id":3,"type":"stat","title":"PostgreSQL bytes","gridPos":{"x":16,"y":0,"w":8,"h":7},"targets":[{"expr":"coin_platform_storage_bytes{area=\"postgres\"}"}]},
     {"id":4,"type":"timeseries","title":"Storage growth","gridPos":{"x":0,"y":7,"w":16,"h":8},"targets":[{"expr":"deriv(coin_platform_storage_bytes[1h])","legendFormat":"{{area}} bytes/s"}]},
-    {"id":5,"type":"stat","title":"Projected bronze days remaining","gridPos":{"x":16,"y":7,"w":8,"h":8},"targets":[{"expr":"clamp_min(node_filesystem_avail_bytes{mountpoint=\"/data\"}/clamp_min(deriv(coin_platform_storage_bytes{area=\"bronze\"}[6h]),1)/86400,0)"}]}
+    {"id":5,"type":"stat","title":"Projected bronze days remaining","gridPos":{"x":16,"y":7,"w":8,"h":8},"targets":[{"expr":"clamp_min(node_filesystem_avail_bytes{mountpoint=\"/\"}/clamp_min(deriv(coin_platform_storage_bytes{area=\"bronze\"}[6h]),1)/86400,0)"}]}
   ]
 }
