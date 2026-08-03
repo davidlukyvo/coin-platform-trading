@@ -1,0 +1,62 @@
+services:
+  postgres:
+    mem_limit: 768m
+    cpus: 0.5
+    labels:
+      deployment.site: bamboo
+
+  collector:
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      DEPLOYMENT_SITE: bamboo
+      COLLECTOR_INSTANCE: trading-bamboo
+      COLLECTOR_QUEUE_SIZE: 5000
+    labels:
+      deployment.site: bamboo
+      collector.instance: trading-bamboo
+
+  silver-processor:
+    mem_limit: 384m
+    cpus: 0.5
+    environment:
+      DEPLOYMENT_SITE: bamboo
+      COLLECTOR_INSTANCE: trading-bamboo
+    labels:
+      deployment.site: bamboo
+
+  prometheus:
+    mem_limit: 384m
+    cpus: 0.5
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-lifecycle
+    labels:
+      deployment.site: bamboo
+
+  grafana:
+    mem_limit: 256m
+    cpus: 0.5
+    labels:
+      deployment.site: bamboo
+
+  node-exporter:
+    mem_limit: 96m
+    cpus: 0.2
+    labels:
+      deployment.site: bamboo
+
+  cadvisor:
+    mem_limit: 192m
+    cpus: 0.35
+    labels:
+      deployment.site: bamboo
+
+  storage-metrics:
+    mem_limit: 64m
+    cpus: 0.15
+    labels:
+      deployment.site: bamboo
