@@ -33,6 +33,17 @@ CURRENT_BACKOFF = Gauge("coin_collector_reconnect_backoff_seconds", "Current rec
 LAST_EVENT_TS = Gauge("coin_collector_last_event_unixtime", "Unix time of latest received event", ["symbol", "stream"])
 LAST_WRITE_TS = Gauge("coin_collector_last_write_unixtime", "Unix time of latest successful RAW write", ["symbol", "stream"])
 WRITE_LATENCY = Histogram("coin_collector_write_seconds", "RAW write latency")
+MARKET_LAST_PRICE = Gauge("coin_market_last_price", "Latest Binance trade price", ["symbol"])
+MARKET_LAST_TRADE_QUANTITY = Gauge(
+    "coin_market_last_trade_quantity", "Latest Binance aggregate trade base quantity", ["symbol"]
+)
+MARKET_KLINE_CLOSE = Gauge("coin_market_kline_close", "Latest Binance kline close", ["symbol", "interval"])
+MARKET_KLINE_BASE_VOLUME = Gauge(
+    "coin_market_kline_base_volume", "Current Binance kline base volume", ["symbol", "interval"]
+)
+MARKET_KLINE_QUOTE_VOLUME = Gauge(
+    "coin_market_kline_quote_volume", "Current Binance kline quote volume", ["symbol", "interval"]
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +138,20 @@ def parse_expected_stream(stream: str, allowed_streams: frozenset[str]) -> tuple
     if not symbol or not stream_type:
         raise ValueError(f"malformed stream: {stream}")
     return symbol.upper(), stream_type
+
+
+def observe_market_metrics(symbol: str, stream_type: str, payload: dict[str, Any]) -> None:
+    """Update non-authoritative display metrics without changing the RAW record."""
+    if stream_type == "aggTrade":
+        MARKET_LAST_PRICE.labels(symbol=symbol).set(float(payload["p"]))
+        MARKET_LAST_TRADE_QUANTITY.labels(symbol=symbol).set(float(payload["q"]))
+        return
+    if stream_type.startswith("kline_"):
+        kline = payload["k"]
+        interval = str(kline["i"])
+        MARKET_KLINE_CLOSE.labels(symbol=symbol, interval=interval).set(float(kline["c"]))
+        MARKET_KLINE_BASE_VOLUME.labels(symbol=symbol, interval=interval).set(float(kline["v"]))
+        MARKET_KLINE_QUOTE_VOLUME.labels(symbol=symbol, interval=interval).set(float(kline["q"]))
 
 
 def partition_path(raw_root: Path, stream: str, event_time: datetime) -> Path:
@@ -283,6 +308,11 @@ async def collect(queue: asyncio.Queue[RawItem]) -> None:
 
                     EVENTS.labels(symbol=symbol, stream=stream_type).inc()
                     LAST_EVENT_TS.labels(symbol=symbol, stream=stream_type).set(received_at.timestamp())
+                    try:
+                        observe_market_metrics(symbol, stream_type, payload)
+                    except (KeyError, TypeError, ValueError):
+                        ERRORS.labels(type="derived_market_metric").inc()
+                        logger.warning("Unable to derive market display metric for %s", stream, exc_info=True)
                     QUEUE_DEPTH.set(queue.qsize())
                     state.last_event_at = received_at
                     if not state.connection_ready:

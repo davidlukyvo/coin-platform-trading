@@ -95,3 +95,17 @@ def test_settings_validation_rejects_zero_write_attempts(tmp_path: Path) -> None
     )
     with pytest.raises(ValueError, match="WRITE_MAX_ATTEMPTS"):
         settings.validate()
+
+
+def test_observe_market_metrics_updates_aggregate_trade_gauges() -> None:
+    app.observe_market_metrics("BTCUSDT", "aggTrade", {"p": "65432.10", "q": "0.125"})
+    assert app.MARKET_LAST_PRICE.labels(symbol="BTCUSDT")._value.get() == pytest.approx(65432.10)
+    assert app.MARKET_LAST_TRADE_QUANTITY.labels(symbol="BTCUSDT")._value.get() == pytest.approx(0.125)
+
+
+def test_observe_market_metrics_updates_kline_gauges() -> None:
+    payload = {"k": {"i": "1m", "c": "65430.50", "v": "12.5", "q": "817881.25"}}
+    app.observe_market_metrics("BTCUSDT", "kline_1m", payload)
+    assert app.MARKET_KLINE_CLOSE.labels(symbol="BTCUSDT", interval="1m")._value.get() == pytest.approx(65430.50)
+    assert app.MARKET_KLINE_BASE_VOLUME.labels(symbol="BTCUSDT", interval="1m")._value.get() == pytest.approx(12.5)
+    assert app.MARKET_KLINE_QUOTE_VOLUME.labels(symbol="BTCUSDT", interval="1m")._value.get() == pytest.approx(817881.25)
