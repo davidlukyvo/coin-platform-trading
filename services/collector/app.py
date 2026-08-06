@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 import os
@@ -33,21 +34,22 @@ CURRENT_BACKOFF = Gauge("coin_collector_reconnect_backoff_seconds", "Current rec
 LAST_EVENT_TS = Gauge("coin_collector_last_event_unixtime", "Unix time of latest received event", ["symbol", "stream"])
 LAST_WRITE_TS = Gauge("coin_collector_last_write_unixtime", "Unix time of latest successful RAW write", ["symbol", "stream"])
 WRITE_LATENCY = Histogram("coin_collector_write_seconds", "RAW write latency")
-MARKET_LAST_PRICE = Gauge("coin_market_last_price", "Latest Binance trade price", ["symbol"])
+MARKET_LAST_PRICE = Gauge("coin_market_last_price", "Latest public trade price", ["symbol"])
 MARKET_LAST_TRADE_QUANTITY = Gauge(
-    "coin_market_last_trade_quantity", "Latest Binance aggregate trade base quantity", ["symbol"]
+    "coin_market_last_trade_quantity", "Latest public trade base quantity", ["symbol"]
 )
-MARKET_KLINE_CLOSE = Gauge("coin_market_kline_close", "Latest Binance kline close", ["symbol", "interval"])
+MARKET_KLINE_CLOSE = Gauge("coin_market_kline_close", "Latest public kline close", ["symbol", "interval"])
 MARKET_KLINE_BASE_VOLUME = Gauge(
-    "coin_market_kline_base_volume", "Current Binance kline base volume", ["symbol", "interval"]
+    "coin_market_kline_base_volume", "Current public kline base volume", ["symbol", "interval"]
 )
 MARKET_KLINE_QUOTE_VOLUME = Gauge(
-    "coin_market_kline_quote_volume", "Current Binance kline quote volume", ["symbol", "interval"]
+    "coin_market_kline_quote_volume", "Current public kline quote volume", ["symbol", "interval"]
 )
 
 
 @dataclass(frozen=True)
 class Settings:
+    exchange: str
     ws_base: str
     symbols: tuple[str, ...]
     streams: tuple[str, ...]
@@ -61,10 +63,15 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        symbols = tuple(s.strip().lower() for s in os.getenv("MARKET_SYMBOLS", "btcusdt,ethusdt").split(",") if s.strip())
+        exchange = os.getenv("EXCHANGE", "binance").strip().lower()
+        symbols = tuple(s.strip() for s in os.getenv("MARKET_SYMBOLS", "btcusdt,ethusdt").split(",") if s.strip())
         streams = tuple(s.strip() for s in os.getenv("MARKET_STREAMS", "aggTrade,kline_1m").split(",") if s.strip())
         settings = cls(
-            ws_base=os.getenv("BINANCE_WS_BASE", "wss://stream.binance.com:9443").rstrip("/"),
+            exchange=exchange,
+            ws_base=os.getenv(
+                "BINGX_WS_BASE" if exchange == "bingx" else "BINANCE_WS_BASE",
+                "wss://open-api-ws.bingx.com/market" if exchange == "bingx" else "wss://stream.binance.com:9443",
+            ).rstrip("/"),
             symbols=symbols,
             streams=streams,
             raw_root=Path(os.getenv("RAW_DATA_ROOT", "/data/bronze")),
@@ -79,8 +86,10 @@ class Settings:
         return settings
 
     def validate(self) -> None:
+        if self.exchange not in {"binance", "bingx"}:
+            raise ValueError("EXCHANGE must be binance or bingx")
         if not self.ws_base.startswith(("ws://", "wss://")):
-            raise ValueError("BINANCE_WS_BASE must start with ws:// or wss://")
+            raise ValueError("WebSocket base must start with ws:// or wss://")
         if not self.symbols:
             raise ValueError("MARKET_SYMBOLS cannot be empty")
         if not self.streams:
@@ -93,7 +102,7 @@ class Settings:
             raise ValueError("stale and reconnect values must be positive")
         if self.write_max_attempts < 1:
             raise ValueError("COLLECTOR_WRITE_MAX_ATTEMPTS must be positive")
-        stream_names(self.symbols, self.streams)
+        stream_names(self.exchange, self.symbols, self.streams)
 
 
 @dataclass
@@ -118,14 +127,28 @@ shutdown_event = asyncio.Event()
 state = RuntimeState()
 
 
-def stream_names(symbols: tuple[str, ...], streams: tuple[str, ...]) -> list[str]:
+def canonical_symbol(exchange: str, symbol: str) -> str:
+    compact = symbol.replace("-", "").upper()
+    if exchange == "bingx":
+        if not compact.endswith("USDT") or len(compact) <= 4:
+            raise ValueError(f"Unsupported BingX symbol: {symbol}")
+        return f"{compact[:-4]}-USDT"
+    return compact.lower()
+
+
+def stream_names(exchange: str, symbols: tuple[str, ...], streams: tuple[str, ...]) -> list[str]:
     result: list[str] = []
     for symbol in symbols:
+        normalized_symbol = canonical_symbol(exchange, symbol)
         for stream in streams:
-            if stream == "aggTrade":
-                result.append(f"{symbol}@aggTrade")
-            elif stream.startswith("kline_") and stream.removeprefix("kline_"):
-                result.append(f"{symbol}@kline_{stream.removeprefix('kline_')}")
+            if exchange == "bingx" and stream in {"trade", "aggTrade"}:
+                result.append(f"{normalized_symbol}@trade")
+            elif exchange == "bingx" and stream in {"kline_1m", "kline_1min"}:
+                result.append(f"{normalized_symbol}@kline_1min")
+            elif exchange == "binance" and stream == "aggTrade":
+                result.append(f"{normalized_symbol}@aggTrade")
+            elif exchange == "binance" and stream.startswith("kline_") and stream.removeprefix("kline_"):
+                result.append(f"{normalized_symbol}@kline_{stream.removeprefix('kline_')}")
             else:
                 raise ValueError(f"Unsupported stream: {stream}")
     return result
@@ -137,28 +160,28 @@ def parse_expected_stream(stream: str, allowed_streams: frozenset[str]) -> tuple
     symbol, stream_type = stream.split("@", 1)
     if not symbol or not stream_type:
         raise ValueError(f"malformed stream: {stream}")
-    return symbol.upper(), stream_type
+    return symbol.replace("-", "").upper(), stream_type
 
 
 def observe_market_metrics(symbol: str, stream_type: str, payload: dict[str, Any]) -> None:
     """Update non-authoritative display metrics without changing the RAW record."""
-    if stream_type == "aggTrade":
+    if stream_type in {"aggTrade", "trade"}:
         MARKET_LAST_PRICE.labels(symbol=symbol).set(float(payload["p"]))
         MARKET_LAST_TRADE_QUANTITY.labels(symbol=symbol).set(float(payload["q"]))
         return
     if stream_type.startswith("kline_"):
-        kline = payload["k"]
-        interval = str(kline["i"])
+        kline = payload.get("k") or payload["K"]
+        interval = "1m" if str(kline["i"]) == "1min" else str(kline["i"])
         MARKET_KLINE_CLOSE.labels(symbol=symbol, interval=interval).set(float(kline["c"]))
         MARKET_KLINE_BASE_VOLUME.labels(symbol=symbol, interval=interval).set(float(kline["v"]))
         MARKET_KLINE_QUOTE_VOLUME.labels(symbol=symbol, interval=interval).set(float(kline["q"]))
 
 
-def partition_path(raw_root: Path, stream: str, event_time: datetime) -> Path:
+def partition_path(raw_root: Path, exchange: str, stream: str, event_time: datetime) -> Path:
     symbol, stream_type = stream.split("@", 1)
     return (
         raw_root
-        / "binance"
+        / exchange
         / "spot"
         / stream_type
         / f"symbol={symbol.upper()}"
@@ -175,7 +198,7 @@ def build_record(item: RawItem) -> tuple[Path, str, str, str]:
     except (TypeError, ValueError, OSError) as exc:
         raise ValueError("invalid source timestamp") from exc
     record = {
-        "exchange": "binance",
+        "exchange": SETTINGS.exchange,
         "market_type": "spot",
         "stream": item.stream,
         "exchange_event_time": event_time.isoformat(),
@@ -185,7 +208,7 @@ def build_record(item: RawItem) -> tuple[Path, str, str, str]:
     }
     symbol, stream_type = item.stream.split("@", 1)
     line = json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n"
-    return partition_path(SETTINGS.raw_root, item.stream, event_time), line, symbol.upper(), stream_type
+    return partition_path(SETTINGS.raw_root, SETTINGS.exchange, item.stream, event_time), line, symbol.replace("-", "").upper(), stream_type
 
 
 def append_line(path: Path, line: str) -> None:
@@ -263,16 +286,16 @@ async def writer(queue: asyncio.Queue[RawItem]) -> None:
 
 
 async def collect(queue: asyncio.Queue[RawItem]) -> None:
-    streams = stream_names(SETTINGS.symbols, SETTINGS.streams)
+    streams = stream_names(SETTINGS.exchange, SETTINGS.symbols, SETTINGS.streams)
     allowed_streams = frozenset(streams)
-    url = f"{SETTINGS.ws_base}/stream?streams={'/'.join(streams)}"
+    url = f"{SETTINGS.ws_base}/stream?streams={'/'.join(streams)}" if SETTINGS.exchange == "binance" else SETTINGS.ws_base
     backoff = 1.0
     while not shutdown_event.is_set():
         state.connected = False
         state.connection_ready = False
         CONNECTED.set(0)
         try:
-            logger.info("Connecting to Binance streams: %s", ", ".join(streams))
+            logger.info("Connecting to %s streams: %s", SETTINGS.exchange, ", ".join(streams))
             async with websockets.connect(
                 url,
                 ping_interval=20,
@@ -283,16 +306,28 @@ async def collect(queue: asyncio.Queue[RawItem]) -> None:
             ) as ws:
                 state.connected = True
                 CONNECTED.set(1)
+                if SETTINGS.exchange == "bingx":
+                    for index, stream in enumerate(streams):
+                        await ws.send(json.dumps({"id": f"trading-bamboo-{index}", "dataType": stream}))
                 async for message in ws:
                     if shutdown_event.is_set():
                         break
                     received_at = datetime.now(timezone.utc)
                     try:
+                        if isinstance(message, bytes):
+                            message = gzip.decompress(message).decode("utf-8")
+                        if SETTINGS.exchange == "bingx" and "ping" in message.lower():
+                            await ws.send("Pong")
+                            continue
                         envelope = json.loads(message)
-                        stream = envelope["stream"]
+                        if SETTINGS.exchange == "bingx" and "code" in envelope and "data" not in envelope:
+                            if int(envelope["code"]) != 0:
+                                raise ValueError(f"BingX subscription failed: {envelope}")
+                            continue
+                        stream = envelope["dataType" if SETTINGS.exchange == "bingx" else "stream"]
                         payload = envelope["data"]
                         if not isinstance(stream, str) or not isinstance(payload, dict):
-                            raise ValueError("invalid Binance envelope")
+                            raise ValueError("invalid market-data envelope")
                         symbol, stream_type = parse_expected_stream(stream, allowed_streams)
                     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                         ERRORS.labels(type="decode_or_protocol").inc()

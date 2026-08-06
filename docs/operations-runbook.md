@@ -116,3 +116,22 @@ docker compose up -d --build
 Prefer reverting the faulty commit and committing the revert on the feature
 branch. Never use `git reset --hard`, force-push, `docker compose down -v`, or
 delete host data as a rollback shortcut.
+# BingX public market-data adapter
+
+`bingx-collector` is a read-only public Spot WebSocket consumer. It requires no
+API key, has no account access, and cannot place orders. Data is isolated under
+`bronze/bingx/spot/...` and `silver/bingx/spot/...`; Binance remains under its
+existing paths. Prometheus scrapes the adapter as job `bingx-collector`.
+
+Safe validation:
+
+```bash
+docker compose exec bingx-collector python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8030/healthz').read().decode())"
+find "${COIN_DATA_ROOT}/bronze/bingx" -type f -name events.ndjson -mmin -5
+```
+
+Stopping or rolling back this adapter does not require restarting Binance:
+
+```bash
+docker compose stop bingx-collector
+```

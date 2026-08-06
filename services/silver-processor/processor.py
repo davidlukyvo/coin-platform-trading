@@ -61,16 +61,19 @@ def positive_decimal(value: Any, name: str, *, allow_zero: bool = False) -> Deci
 
 def normalize_agg(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     raw = record["raw_payload"]
-    symbol = str(raw["s"]).upper()
-    trade_id = int(raw["a"])
+    exchange = str(record["exchange"])
+    symbol = str(raw["s"]).replace("-", "").upper()
+    trade_id = int(raw["t"] if exchange == "bingx" else raw["a"])
     row = {
-        "exchange": str(record["exchange"]), "market_type": str(record["market_type"]),
-        "symbol": symbol, "stream": "aggTrade", "schema_version": int(record["schema_version"]),
+        "exchange": exchange, "market_type": str(record["market_type"]),
+        "symbol": symbol, "stream": "trade" if exchange == "bingx" else "aggTrade", "schema_version": int(record["schema_version"]),
         "exchange_event_time": utc_datetime(record["exchange_event_time"]),
         "collector_receive_time": utc_datetime(record["collector_receive_time"]),
         "aggregate_trade_id": trade_id, "price": positive_decimal(raw["p"], "price"),
-        "quantity": positive_decimal(raw["q"], "quantity"), "first_trade_id": int(raw["f"]),
-        "last_trade_id": int(raw["l"]), "trade_time": utc_datetime(raw["T"], milliseconds=True),
+        "quantity": positive_decimal(raw["q"], "quantity"),
+        "first_trade_id": trade_id if exchange == "bingx" else int(raw["f"]),
+        "last_trade_id": trade_id if exchange == "bingx" else int(raw["l"]),
+        "trade_time": utc_datetime(raw["T"], milliseconds=True),
         "buyer_is_maker": bool(raw["m"]),
     }
     return f"{symbol}:{trade_id}", row
@@ -78,10 +81,12 @@ def normalize_agg(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def normalize_kline(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     raw = record["raw_payload"]
-    kline = raw["k"]
-    symbol, interval = str(kline["s"]).upper(), str(kline["i"])
-    if interval != "1m":
+    exchange = str(record["exchange"])
+    kline = raw.get("k") or raw["K"]
+    symbol, interval = str(kline["s"]).replace("-", "").upper(), str(kline["i"])
+    if interval not in {"1m", "1min"}:
         raise ValueError("unsupported kline interval")
+    interval = "1m"
     open_, high, low, close = (positive_decimal(kline[key], key) for key in ("o", "h", "l", "c"))
     if high < max(open_, close, low) or low > min(open_, close, high):
         raise ValueError("invalid OHLC relationship")
@@ -93,7 +98,7 @@ def normalize_kline(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     if trade_count < 0:
         raise ValueError("negative trade_count")
     row = {
-        "exchange": str(record["exchange"]), "market_type": str(record["market_type"]),
+        "exchange": exchange, "market_type": str(record["market_type"]),
         "symbol": symbol, "interval": interval, "schema_version": int(record["schema_version"]),
         "exchange_event_time": utc_datetime(record["exchange_event_time"]),
         "collector_receive_time": utc_datetime(record["collector_receive_time"]),
@@ -101,9 +106,11 @@ def normalize_kline(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "low": low, "close": close, "volume": positive_decimal(kline["v"], "volume", allow_zero=True),
         "quote_volume": positive_decimal(kline["q"], "quote_volume", allow_zero=True),
         "trade_count": trade_count,
-        "taker_buy_base_volume": positive_decimal(kline["V"], "taker_buy_base_volume", allow_zero=True),
-        "taker_buy_quote_volume": positive_decimal(kline["Q"], "taker_buy_quote_volume", allow_zero=True),
-        "is_closed": bool(kline["x"]),
+        "taker_buy_base_volume": positive_decimal(kline.get("V", 0), "taker_buy_base_volume", allow_zero=True),
+        "taker_buy_quote_volume": positive_decimal(kline.get("Q", 0), "taker_buy_quote_volume", allow_zero=True),
+        # BingX does not publish an explicit closed flag. A candle is sealed only
+        # after its documented close timestamp has passed.
+        "is_closed": bool(kline["x"]) if "x" in kline else datetime.now(UTC) >= close_time,
     }
     return f"{symbol}:{interval}:{int(open_time.timestamp() * 1000)}", row
 
@@ -186,7 +193,7 @@ class SilverProcessor:
         self.checkpoint, self.max_bytes, self.min_batch_bytes = checkpoint, max_bytes, min_batch_bytes
 
     def files(self, start_date: str | None = None, end_date: str | None = None) -> list[Path]:
-        files = sorted(self.bronze.glob("binance/spot/*/symbol=*/date=*/hour=*/events.ndjson"))
+        files = sorted(self.bronze.glob("*/spot/*/symbol=*/date=*/hour=*/events.ndjson"))
         if start_date or end_date:
             files = [path for path in files if (not start_date or path.parts[-3].split("=", 1)[1] >= start_date)
                      and (not end_date or path.parts[-3].split("=", 1)[1] <= end_date)]
@@ -194,6 +201,7 @@ class SilverProcessor:
 
     def process_file(self, path: Path, *, dry_run: bool = False, use_checkpoint: bool = True) -> BatchResult:
         relative = path.relative_to(self.bronze).as_posix()
+        exchange = path.parts[-7]
         stream = path.parts[-5]
         start = self.checkpoint.offset(relative) if use_checkpoint else 0
         result = BatchResult(offset=start)
@@ -218,7 +226,7 @@ class SilverProcessor:
                 result.input_rows += 1
                 try:
                     obj = json.loads(line)
-                    normalized = normalize_agg(obj) if stream == "aggTrade" else normalize_kline(obj)
+                    normalized = normalize_agg(obj) if stream in {"aggTrade", "trade"} else normalize_kline(obj)
                     records.append(normalized)
                 except Exception as exc:
                     result.rejected_rows += 1
@@ -231,14 +239,17 @@ class SilverProcessor:
         for key, row in records:
             if key in latest:
                 result.duplicates += 1
-                if stream == "kline_1m" and row["exchange_event_time"] >= latest[key]["exchange_event_time"]:
+                if stream in {"kline_1m", "kline_1min"} and row["exchange_event_time"] >= latest[key]["exchange_event_time"]:
                     latest[key] = row
             else:
                 latest[key] = row
-        if stream == "kline_1m":
+        if stream in {"kline_1m", "kline_1min"}:
             latest = {key: row for key, row in latest.items() if row["is_closed"]}
         result.valid_rows = len(latest)
-        unseen = self.checkpoint.unseen(stream, latest) if use_checkpoint else set(latest)
+        # Preserve the original Binance checkpoint namespace so deployment does
+        # not replay existing Bronze. New exchanges use an isolated namespace.
+        checkpoint_stream = stream if exchange == "binance" else f"{exchange}:{stream}"
+        unseen = self.checkpoint.unseen(checkpoint_stream, latest) if use_checkpoint else set(latest)
         rows = [latest[key] for key in sorted(unseen)]
         result.duplicates += len(latest) - len(rows)
         result.written_rows = len(rows)
@@ -248,7 +259,7 @@ class SilverProcessor:
         symbol = path.parts[-4].split("=", 1)[1]
         date = path.parts[-3].split("=", 1)[1]
         digest = hashlib.sha256(f"{relative}:{start}:{result.offset}".encode()).hexdigest()[:16]
-        output = self.silver / "binance" / "spot" / stream / f"symbol={symbol}" / f"date={date}" / f"part-{digest}.parquet"
+        output = self.silver / exchange / "spot" / stream / f"symbol={symbol}" / f"date={date}" / f"part-{digest}.parquet"
         quarantine = self.quarantine / f"date={date}" / f"rejected-{digest}.ndjson"
         report = self.reports / f"date={date}" / f"batch-{digest}.json"
         started = time.monotonic()
@@ -269,7 +280,7 @@ class SilverProcessor:
             }
             atomic_bytes(report, (json.dumps(summary, separators=(",", ":")) + "\n").encode())
             if use_checkpoint:
-                self.checkpoint.commit(relative, result.offset, stream, unseen)
+                self.checkpoint.commit(relative, result.offset, checkpoint_stream, unseen)
         return result
 
     def run_once(self, *, dry_run: bool = False, use_checkpoint: bool = True,

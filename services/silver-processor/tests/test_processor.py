@@ -35,6 +35,17 @@ def source(root: Path, stream: str) -> Path:
     return path
 
 
+def bingx_outer(payload, event="2026-08-02T01:02:00+00:00"):
+    return {"exchange":"bingx","market_type":"spot","stream":"x","schema_version":1,
+            "exchange_event_time":event,"collector_receive_time":event,"raw_payload":payload}
+
+
+def bingx_source(root: Path, stream: str) -> Path:
+    path = root / "bingx" / "spot" / stream / "symbol=BTC-USDT" / "date=2026-08-02" / "hour=01" / "events.ndjson"
+    path.parent.mkdir(parents=True)
+    return path
+
+
 def make_processor(tmp_path: Path):
     bronze = tmp_path / "bronze"
     checkpoint = Checkpoint(tmp_path / "checkpoints" / "state.db")
@@ -61,6 +72,30 @@ def test_parse_kline_and_closed_state():
     assert key.startswith("BTCUSDT:1m:")
     assert row["is_closed"] is True
     assert row["high"] >= max(row["open"], row["close"], row["low"])
+
+
+def test_parse_bingx_trade_maps_to_common_schema():
+    record = bingx_outer({"E":1785632520000,"T":1785632520000,"e":"trade","p":"65010.5",
+                          "q":"0.02","s":"BTC-USDT","t":"33685717","m":True})
+    key, row = normalize_agg(record)
+    assert key == "BTCUSDT:33685717"
+    assert row["exchange"] == "bingx"
+    assert row["stream"] == "trade"
+    assert row["first_trade_id"] == row["last_trade_id"] == 33685717
+
+
+def test_bingx_pipeline_is_partitioned_and_checkpoint_isolated(tmp_path):
+    processor, bronze = make_processor(tmp_path)
+    trade = bingx_outer({"E":1785632520000,"T":1785632520000,"e":"trade","p":"65010.5",
+                         "q":"0.02","s":"BTC-USDT","t":"33685717","m":True})
+    path = bingx_source(bronze, "trade")
+    append(path, trade)
+    result = processor.run_once()[0]
+    assert result.written_rows == 1
+    output = next((tmp_path / "silver" / "bingx" / "spot" / "trade").rglob("*.parquet"))
+    table = pq.ParquetFile(output).read()
+    assert table.column("exchange").to_pylist() == ["bingx"]
+    assert processor.checkpoint.unseen("bingx:trade", ["BTCUSDT:33685717"]) == set()
 
 
 @pytest.mark.parametrize("record", [agg(price="0"), agg(quantity="bad")])

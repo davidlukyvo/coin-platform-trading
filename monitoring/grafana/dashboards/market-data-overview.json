@@ -1,12 +1,12 @@
 {
   "annotations":{"list":[]},"editable":false,"schemaVersion":41,"title":"Market Data Overview","uid":"coin-market-data","timezone":"browser","refresh":"10s","time":{"from":"now-1h","to":"now"},
   "panels":[
-    {"id":1,"type":"stat","title":"Latest trade price","gridPos":{"x":0,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_last_price","legendFormat":"{{symbol}}"}]},
-    {"id":2,"type":"stat","title":"Latest 1m candle close","gridPos":{"x":8,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_kline_close{interval=\"1m\"}","legendFormat":"{{symbol}}"}]},
-    {"id":3,"type":"stat","title":"Market data age","gridPos":{"x":16,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"s"}},"targets":[{"expr":"time()-max by(symbol)(coin_collector_last_event_unixtime)","legendFormat":"{{symbol}}"}]},
-    {"id":4,"type":"timeseries","title":"Trade price","gridPos":{"x":0,"y":6,"w":16,"h":9},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_last_price","legendFormat":"{{symbol}}"}]},
-    {"id":5,"type":"timeseries","title":"Events per second","gridPos":{"x":16,"y":6,"w":8,"h":9},"targets":[{"expr":"sum by(symbol,stream)(rate(coin_collector_events_total[2m]))","legendFormat":"{{symbol}} {{stream}}"}]},
-    {"id":6,"type":"timeseries","title":"Current 1m base volume","gridPos":{"x":0,"y":15,"w":12,"h":8},"targets":[{"expr":"coin_market_kline_base_volume{interval=\"1m\"}","legendFormat":"{{symbol}}"}]},
-    {"id":7,"type":"timeseries","title":"Current 1m quote volume","gridPos":{"x":12,"y":15,"w":12,"h":8},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_kline_quote_volume{interval=\"1m\"}","legendFormat":"{{symbol}}"}]}
+    {"id":1,"type":"stat","title":"Latest trade price","gridPos":{"x":0,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_last_price","legendFormat":"{{job}} {{symbol}}"}]},
+    {"id":2,"type":"stat","title":"Latest 1m candle close","gridPos":{"x":8,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_kline_close{interval=\"1m\"}","legendFormat":"{{job}} {{symbol}}"}]},
+    {"id":3,"type":"stat","title":"Market data age","gridPos":{"x":16,"y":0,"w":8,"h":6},"fieldConfig":{"defaults":{"unit":"s"}},"targets":[{"expr":"time()-max by(job,symbol)(coin_collector_last_event_unixtime)","legendFormat":"{{job}} {{symbol}}"}]},
+    {"id":4,"type":"timeseries","title":"Trade price","gridPos":{"x":0,"y":6,"w":16,"h":9},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_last_price","legendFormat":"{{job}} {{symbol}}"}]},
+    {"id":5,"type":"timeseries","title":"Events per second","gridPos":{"x":16,"y":6,"w":8,"h":9},"targets":[{"expr":"sum by(job,symbol,stream)(rate(coin_collector_events_total[2m]))","legendFormat":"{{job}} {{symbol}} {{stream}}"}]},
+    {"id":6,"type":"timeseries","title":"Current 1m base volume","gridPos":{"x":0,"y":15,"w":12,"h":8},"targets":[{"expr":"coin_market_kline_base_volume{interval=\"1m\"}","legendFormat":"{{job}} {{symbol}}"}]},
+    {"id":7,"type":"timeseries","title":"Current 1m quote volume","gridPos":{"x":12,"y":15,"w":12,"h":8},"fieldConfig":{"defaults":{"unit":"currencyUSD"}},"targets":[{"expr":"coin_market_kline_quote_volume{interval=\"1m\"}","legendFormat":"{{job}} {{symbol}}"}]}
   ]
 }

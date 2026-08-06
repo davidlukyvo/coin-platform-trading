@@ -16,6 +16,17 @@ services:
       deployment.site: bamboo
       collector.instance: trading-bamboo
 
+  bingx-collector:
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      DEPLOYMENT_SITE: bamboo
+      COLLECTOR_INSTANCE: trading-bamboo-bingx
+      COLLECTOR_QUEUE_SIZE: 5000
+    labels:
+      deployment.site: bamboo
+      collector.instance: trading-bamboo-bingx
+
   silver-processor:
     mem_limit: 384m
     cpus: 0.5

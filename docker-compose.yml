@@ -92,6 +92,47 @@ services:
     networks:
       - coin-platform
 
+  bingx-collector:
+    build:
+      context: ./services/collector
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      TZ: UTC
+      EXCHANGE: bingx
+      BINGX_WS_BASE: ${BINGX_WS_BASE:-wss://open-api-ws.bingx.com/market}
+      MARKET_SYMBOLS: ${BINGX_MARKET_SYMBOLS:-BTC-USDT,ETH-USDT}
+      MARKET_STREAMS: ${BINGX_MARKET_STREAMS:-trade,kline_1m}
+      RAW_DATA_ROOT: /data/bronze
+      QUARANTINE_DATA_ROOT: /data/quarantine
+      COLLECTOR_LOG_LEVEL: ${BINGX_COLLECTOR_LOG_LEVEL:-INFO}
+      COLLECTOR_METRICS_PORT: "8030"
+      COLLECTOR_QUEUE_SIZE: ${BINGX_COLLECTOR_QUEUE_SIZE:-5000}
+      COLLECTOR_STALE_AFTER_SECONDS: ${BINGX_COLLECTOR_STALE_AFTER_SECONDS:-60}
+      COLLECTOR_RECONNECT_MAX_SECONDS: ${BINGX_COLLECTOR_RECONNECT_MAX_SECONDS:-60}
+      COLLECTOR_WRITE_MAX_ATTEMPTS: ${COLLECTOR_WRITE_MAX_ATTEMPTS:-5}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/bronze:/data/bronze
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/quarantine:/data/quarantine
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8030/healthz', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.75
+    stop_grace_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - coin-platform
+
   silver-processor:
     build:
       context: ./services/silver-processor
@@ -172,6 +213,8 @@ services:
       storage-init:
         condition: service_completed_successfully
       collector:
+        condition: service_healthy
+      bingx-collector:
         condition: service_healthy
       silver-processor:
         condition: service_healthy

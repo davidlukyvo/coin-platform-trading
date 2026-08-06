@@ -8,6 +8,7 @@ import app
 
 def make_settings(raw_root: Path, metrics_port: int = 8000) -> app.Settings:
     return app.Settings(
+        exchange="binance",
         ws_base="wss://example.test",
         symbols=("btcusdt",),
         streams=("aggTrade",),
@@ -22,7 +23,7 @@ def make_settings(raw_root: Path, metrics_port: int = 8000) -> app.Settings:
 
 
 def test_stream_names_builds_supported_streams() -> None:
-    assert app.stream_names(("btcusdt",), ("aggTrade", "kline_1m")) == [
+    assert app.stream_names("binance", ("btcusdt",), ("aggTrade", "kline_1m")) == [
         "btcusdt@aggTrade",
         "btcusdt@kline_1m",
     ]
@@ -30,7 +31,13 @@ def test_stream_names_builds_supported_streams() -> None:
 
 def test_stream_names_rejects_unsupported_stream() -> None:
     with pytest.raises(ValueError, match="Unsupported stream"):
-        app.stream_names(("btcusdt",), ("depth",))
+        app.stream_names("binance", ("btcusdt",), ("depth",))
+
+
+def test_bingx_stream_names_normalizes_symbols_and_topics() -> None:
+    assert app.stream_names("bingx", ("btcusdt", "ETH-USDT"), ("trade", "kline_1m")) == [
+        "BTC-USDT@trade", "BTC-USDT@kline_1min", "ETH-USDT@trade", "ETH-USDT@kline_1min",
+    ]
 
 
 def test_parse_expected_stream_accepts_configured_stream() -> None:
@@ -47,7 +54,7 @@ def test_parse_expected_stream_rejects_unexpected_stream() -> None:
 
 def test_partition_path_uses_utc_date_and_hour(tmp_path: Path) -> None:
     event_time = datetime(2026, 8, 1, 23, 59, tzinfo=timezone.utc)
-    path = app.partition_path(tmp_path, "btcusdt@aggTrade", event_time)
+    path = app.partition_path(tmp_path, "binance", "btcusdt@aggTrade", event_time)
     assert path == (
         tmp_path
         / "binance"
@@ -82,6 +89,7 @@ def test_settings_validation_rejects_bad_port(tmp_path: Path) -> None:
 
 def test_settings_validation_rejects_zero_write_attempts(tmp_path: Path) -> None:
     settings = app.Settings(
+        exchange="binance",
         ws_base="wss://example.test",
         symbols=("btcusdt",),
         streams=("aggTrade",),
