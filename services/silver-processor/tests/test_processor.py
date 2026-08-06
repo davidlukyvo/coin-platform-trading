@@ -78,7 +78,7 @@ def test_parse_bingx_trade_maps_to_common_schema():
     record = bingx_outer({"E":1785632520000,"T":1785632520000,"e":"trade","p":"65010.5",
                           "q":"0.02","s":"BTC-USDT","t":"33685717","m":True})
     key, row = normalize_agg(record)
-    assert key == "BTCUSDT:33685717"
+    assert key == "BTC-USDT:33685717"
     assert row["exchange"] == "bingx"
     assert row["stream"] == "trade"
     assert row["first_trade_id"] == row["last_trade_id"] == 33685717
@@ -95,7 +95,7 @@ def test_bingx_pipeline_is_partitioned_and_checkpoint_isolated(tmp_path):
     output = next((tmp_path / "silver" / "bingx" / "spot" / "trade").rglob("*.parquet"))
     table = pq.ParquetFile(output).read()
     assert table.column("exchange").to_pylist() == ["bingx"]
-    assert processor.checkpoint.unseen("bingx:trade", ["BTCUSDT:33685717"]) == set()
+    assert processor.checkpoint.unseen("bingx:trade", ["BTC-USDT:33685717"]) == set()
 
 
 @pytest.mark.parametrize("record", [agg(price="0"), agg(quantity="bad")])

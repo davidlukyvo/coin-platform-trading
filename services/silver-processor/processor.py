@@ -62,7 +62,7 @@ def positive_decimal(value: Any, name: str, *, allow_zero: bool = False) -> Deci
 def normalize_agg(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     raw = record["raw_payload"]
     exchange = str(record["exchange"])
-    symbol = str(raw["s"]).replace("-", "").upper()
+    symbol = str(raw["s"]).upper()
     trade_id = int(raw["t"] if exchange == "bingx" else raw["a"])
     row = {
         "exchange": exchange, "market_type": str(record["market_type"]),
@@ -83,7 +83,7 @@ def normalize_kline(record: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     raw = record["raw_payload"]
     exchange = str(record["exchange"])
     kline = raw.get("k") or raw["K"]
-    symbol, interval = str(kline["s"]).replace("-", "").upper(), str(kline["i"])
+    symbol, interval = str(kline["s"]).upper(), str(kline["i"])
     if interval not in {"1m", "1min"}:
         raise ValueError("unsupported kline interval")
     interval = "1m"
