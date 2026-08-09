@@ -36,6 +36,7 @@ limits = RiskLimits(
 )
 engine = PaperEngine(
     Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.getenv("PAPER_DATA_ROOT", "/data/paper")),
+    state_root=Path(os.getenv("PAPER_UI_ROOT", "/data/paper-ui")),
     exchange=os.getenv("PAPER_DATA_EXCHANGE", "binance"), symbols=limits.allowed_symbols,
     starting_cash=env_float("PAPER_STARTING_CASH", 10000), target_notional=env_float("PAPER_TARGET_NOTIONAL", 100),
     limits=limits, fee_bps=env_float("PAPER_FEE_BPS", 4), slippage_bps=env_float("PAPER_SLIPPAGE_BPS", 2),

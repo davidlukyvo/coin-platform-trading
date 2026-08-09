@@ -84,6 +84,20 @@ def test_engine_is_exactly_once_for_same_bar(tmp_path, monkeypatch):
     assert (tmp_path / "latest-state.json").exists()
 
 
+def test_engine_writes_ui_projection_outside_private_journal(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: synthetic_bars(True))
+    journal_root = tmp_path / "journal"
+    state_root = tmp_path / "ui"
+    paper = PaperEngine(
+        Path("unused"), journal_root, state_root=state_root,
+        symbols=("BTCUSDT",), starting_cash=10000, target_notional=100,
+    )
+    paper.run_once()
+    assert (journal_root / "paper.db").exists()
+    assert not (journal_root / "latest-state.json").exists()
+    assert (state_root / "latest-state.json").exists()
+
+
 def test_kill_switch_journals_rejection(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: synthetic_bars(True))
     paper = PaperEngine(Path("unused"), tmp_path, symbols=("BTCUSDT",), kill_switch=True)

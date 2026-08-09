@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -17,6 +17,8 @@ services:
         chown -R 10004:10004 /host/system-trading
         chown -R 10005:10005 /host/paper
         chmod 700 /host/paper
+        chown -R 10005:10004 /host/paper-ui
+        chmod 2750 /host/paper-ui
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -152,7 +154,7 @@ services:
       - ${SYSTEM_TRADING_SECRET_ROOT:-./secrets/system-trading}:/run/system-trading-secrets:ro
       - ${SYSTEM_TRADING_TLS_ROOT:-./secrets/system-trading-tls}:/run/system-trading-tls:ro
       - ${COIN_DATA_ROOT:-/data/coin-platform}/system-trading:/data
-      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper:/paper:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper-ui:/paper:ro
     ports:
       - "${SYSTEM_TRADING_BIND_ADDRESS:-127.0.0.1}:${SYSTEM_TRADING_PORT:-8443}:8443"
     healthcheck:
@@ -189,6 +191,7 @@ services:
       TZ: UTC
       SILVER_ROOT: /data/silver
       PAPER_DATA_ROOT: /data/paper
+      PAPER_UI_ROOT: /data/paper-ui
       PAPER_DATA_EXCHANGE: ${PAPER_DATA_EXCHANGE:-binance}
       PAPER_SYMBOLS: ${PAPER_SYMBOLS:-BTCUSDT,ETHUSDT}
       PAPER_INTERVAL_SECONDS: ${PAPER_INTERVAL_SECONDS:-60}
@@ -207,6 +210,9 @@ services:
     volumes:
       - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
       - ${COIN_DATA_ROOT:-/data/coin-platform}/paper:/data/paper
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper-ui:/data/paper-ui
+    group_add:
+      - "10004"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/healthz',timeout=3)\""]
       interval: 30s

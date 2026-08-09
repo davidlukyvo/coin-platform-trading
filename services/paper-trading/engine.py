@@ -207,8 +207,9 @@ def ema_signal(frame: pd.DataFrame) -> tuple[int, float, float]:
 class PaperEngine:
     def __init__(self, silver_root: Path, data_root: Path, exchange: str = "binance", symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT"),
                  starting_cash: float = 10000.0, target_notional: float = 100.0, limits: RiskLimits | None = None,
-                 fee_bps: float = 4.0, slippage_bps: float = 2.0, kill_switch: bool = False):
+                 fee_bps: float = 4.0, slippage_bps: float = 2.0, kill_switch: bool = False, state_root: Path | None = None):
         self.silver_root, self.data_root, self.exchange, self.symbols = silver_root, data_root, exchange, symbols
+        self.state_root = state_root or data_root
         self.target_notional = target_notional
         self.limits = limits or RiskLimits(allowed_symbols=symbols)
         self.journal = Journal(data_root / "paper.db", starting_cash)
@@ -276,9 +277,9 @@ class PaperEngine:
             "limits": asdict(self.limits), "positions": [dict(row) for row in self.journal.positions().values()],
             "recent_fills": self.journal.recent_fills(), "recent_risk_events": self.journal.recent_risk_events(),
         }
-        self.data_root.mkdir(parents=True, exist_ok=True)
-        temporary = self.data_root / "latest-state.json.tmp"
+        self.state_root.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_root / "latest-state.json.tmp"
         temporary.write_text(json.dumps(state, separators=(",", ":"), default=str) + "\n", encoding="utf-8")
-        os.replace(temporary, self.data_root / "latest-state.json")
-        os.chmod(self.data_root / "latest-state.json", 0o600)
+        os.replace(temporary, self.state_root / "latest-state.json")
+        os.chmod(self.state_root / "latest-state.json", 0o640)
         return state

@@ -24,9 +24,9 @@
 Synthetic state lives under `${COIN_DATA_ROOT}/paper`:
 
 - `paper.db`: SQLite journal with signals, risk events, orders, fills, positions, and equity;
-- `latest-state.json`: atomic read-only projection used by System Trading UI.
+- `${COIN_DATA_ROOT}/paper-ui/latest-state.json`: atomic read-only projection used by System Trading UI.
 
-The paper directory is mode `0700`; journal and state files are mode `0600` and owned by UID/GID `10005`.
+The paper directory is mode `0700`; journal files are mode `0600`. The separate `paper-ui` directory is setgid mode `2750` and its projection is mode `0640`, readable only by the System Trading service group `10004`.
 
 Do not reset or edit the journal during a soak. Paper data is not real exchange data, but it is still evidence needed to evaluate the strategy and risk controls.
 
