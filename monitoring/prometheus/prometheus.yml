@@ -15,6 +15,9 @@ scrape_configs:
   - job_name: bingx-collector
     static_configs:
       - targets: ["bingx-collector:8030"]
+  - job_name: system-trading
+    static_configs:
+      - targets: ["system-trading:8040"]
   - job_name: silver-processor
     static_configs:
       - targets: ["silver-processor:8010"]

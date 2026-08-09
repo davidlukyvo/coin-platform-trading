@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block body %}
+<div class="brand"><h1>System Trading</h1><span class="badge">SSH tunnel only</span></div>
+<section class="card" style="max-width:480px;margin:auto">
+  <h2>Đăng nhập quản trị</h2>
+  <p class="note">Giao diện này chỉ lắng nghe trên localhost của Bamboo. Không nhập mật khẩu Grafana.</p>
+  {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <label>Mật khẩu System Trading</label>
+    <input type="password" name="password" required autocomplete="current-password">
+    <button type="submit">Đăng nhập</button>
+  </form>
+</section>
+{% endblock %}

@@ -27,6 +27,12 @@ services:
       deployment.site: bamboo
       collector.instance: trading-bamboo-bingx
 
+  system-trading:
+    mem_limit: 128m
+    cpus: 0.25
+    labels:
+      deployment.site: bamboo
+
   silver-processor:
     mem_limit: 384m
     cpus: 0.5

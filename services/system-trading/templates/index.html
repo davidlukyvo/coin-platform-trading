@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block body %}
+<div class="brand"><h1>BingX Credentials</h1><span class="badge">DRY-RUN · Trading disabled</span></div>
+{% for category,message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+<section class="card">
+  <h2>Trạng thái an toàn</h2>
+  <div class="status"><span>Live orders: <b>OFF</b></span><span>Withdraw: <b>Không được phép</b></span><span>Vault: <b>{{ 'Configured' if configured else 'Empty' }}</b></span></div>
+  {% if configured %}<p class="note">API key đang lưu: <code>{{ masked_key }}</code>. Secret không thể xem lại trên giao diện.</p>{% endif %}
+</section>
+<section class="card">
+  <h2>{{ 'Thay credential BingX' if configured else 'Nhập credential BingX' }}</h2>
+  <p class="note">Credential được mã hóa trước khi ghi xuống đĩa. Trình duyệt chỉ truy cập qua SSH tunnel; không có endpoint đặt hoặc hủy lệnh trong service này.</p>
+  <form method="post" action="{{ url_for('credentials') }}" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+    <div class="grid"><div><label>API key</label><input type="password" name="api_key" required autocomplete="off"></div><div><label>Secret key</label><input type="password" name="secret_key" required autocomplete="off"></div></div>
+    <label><input style="width:auto" type="checkbox" name="confirm_no_withdraw" value="yes" required> Tôi xác nhận API key này không có quyền Withdraw.</label>
+    <button type="submit">Mã hóa và lưu</button>
+  </form>
+</section>
+{% if configured %}<section class="card">
+  <h2>Kiểm tra read-only</h2>
+  <p class="note">Chỉ gọi API xem số dư Spot. Không chuyển tiền, không đặt lệnh và không ghi số dư vào log.</p>
+  <form class="inline" method="post" action="{{ url_for('test_connection') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button type="submit">Test connection</button></form>
+  <form class="inline" method="post" action="{{ url_for('delete_credentials') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input style="width:120px;display:inline-block" name="confirm" placeholder="DELETE" autocomplete="off"><button class="danger" type="submit">Xóa credential</button></form>
+</section>{% endif %}
+<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" type="submit">Đăng xuất</button></form>
+{% endblock %}
