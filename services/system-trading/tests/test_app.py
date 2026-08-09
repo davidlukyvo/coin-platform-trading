@@ -80,3 +80,50 @@ def test_health_declares_trading_disabled(tmp_path):
     module = load_app(tmp_path)
     payload = module.app.test_client().get("/healthz").get_json()
     assert payload == {"status": "healthy", "trading_enabled": False, "dry_run": True}
+
+
+def test_normalize_portfolio_filters_zero_and_positions(tmp_path):
+    module = load_app(tmp_path)
+    result = module.normalize_portfolio(
+        {"data": {"balances": [{"asset": "USDT", "free": "12.5", "locked": "0.5"}, {"asset": "BTC", "free": "0", "locked": "0"}]}},
+        {"data": [{"asset": "USDT", "balance": "20", "equity": "21", "availableMargin": "18", "unrealizedProfit": "1"}]},
+        {"data": [{"symbol": "BTC-USDT", "positionSide": "LONG", "positionAmt": "0.01", "avgPrice": "60000", "unrealizedProfit": "2", "leverage": 2, "liquidationPrice": "30000"}]},
+    )
+    assert [row["asset"] for row in result["spot"]] == ["USDT"]
+    assert str(result["spot"][0]["total"]) == "13.0"
+    assert [row["asset"] for row in result["futures"]] == ["USDT"]
+    assert result["positions"][0]["symbol"] == "BTC-USDT"
+
+
+def test_portfolio_uses_read_only_paths_and_does_not_audit_values(tmp_path, monkeypatch):
+    module = load_app(tmp_path)
+    module.save_credentials("K" * 32, "Z" * 32)
+    calls = []
+
+    def fake_signed_get(path, api_key, secret_key):
+        calls.append(path)
+        if "spot" in path:
+            return {"code": 0, "data": {"balances": [{"asset": "USDT", "free": "7.25", "locked": "0"}]}}
+        if "balance" in path:
+            return {"code": 0, "data": [{"asset": "USDT", "balance": "4", "equity": "4", "availableMargin": "4"}]}
+        return {"code": 0, "data": []}
+
+    monkeypatch.setattr(module, "signed_get", fake_signed_get)
+    client = module.app.test_client()
+    client.get("/login")
+    csrf = csrf_from_session(client)
+    client.post("/login", data={"password": "a-secure-test-password", "csrf": csrf})
+    client.get("/")
+    csrf = csrf_from_session(client)
+    response = client.post("/portfolio", data={"csrf": csrf})
+    assert response.status_code == 200
+    assert calls == [
+        "/openApi/spot/v1/account/balance",
+        "/openApi/swap/v3/user/balance",
+        "/openApi/swap/v2/user/positions",
+    ]
+    assert b"7.25" in response.data
+    assert b"4" in response.data
+    audit_text = module.AUDIT_PATH.read_text(encoding="utf-8")
+    assert "7.25" not in audit_text
+    assert '"detail":"spot_assets=1,futures_assets=1,positions=0"' in audit_text

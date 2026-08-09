@@ -2,7 +2,7 @@
 
 ## Safety state
 
-The initial service supports BingX credential storage and a read-only Spot balance test only. It has no code path for placing orders, withdrawing, transferring, or enabling live trading.
+The service supports BingX credential storage, a read-only connection test, and a read-only portfolio view for Spot balances, Perpetual balances, and open Perpetual positions. It has no code path for placing orders, withdrawing, transferring, or enabling live trading.
 
 ## Initialize local secrets
 
@@ -60,6 +60,14 @@ After trusting the private CA on the laptop, browse to `https://172.26.12.120:84
 ## Configure BingX
 
 Before entering a real key, verify in BingX that Withdraw is disabled and IP restriction is configured where supported. Paste the key directly into the UI; never send it through chat. The `Test connection` operation calls only the signed Spot balance endpoint and records only success/failure plus the count of non-zero assets.
+
+`Refresh portfolio` calls these authenticated read-only endpoints:
+
+- `/openApi/spot/v1/account/balance`;
+- `/openApi/swap/v3/user/balance`;
+- `/openApi/swap/v2/user/positions`.
+
+Account values are rendered only in the current HTTPS response. They are not written to the vault, audit journal, logs, cookies, database, or Prometheus. The audit journal stores only result status and row counts.
 
 ## Rollback
 

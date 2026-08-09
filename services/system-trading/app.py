@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
 
@@ -134,6 +135,66 @@ def signed_get(path: str, api_key: str, secret_key: str) -> dict:
     return payload
 
 
+def decimal_value(value) -> Decimal:
+    try:
+        return Decimal(str(value or "0"))
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
+
+
+def normalize_portfolio(spot_payload: dict, futures_payload: dict, positions_payload: dict) -> dict:
+    spot_data = spot_payload.get("data") or {}
+    spot_items = spot_data.get("balances", []) if isinstance(spot_data, dict) else []
+    spot = []
+    for item in spot_items:
+        free = decimal_value(item.get("free"))
+        locked = decimal_value(item.get("locked"))
+        if free or locked:
+            spot.append({"asset": str(item.get("asset", "")), "free": free, "locked": locked, "total": free + locked})
+
+    futures_data = futures_payload.get("data") or []
+    if isinstance(futures_data, dict):
+        futures_data = futures_data.get("balance", futures_data.get("balances", futures_data))
+    if isinstance(futures_data, dict):
+        futures_data = [futures_data]
+    futures = []
+    for item in futures_data if isinstance(futures_data, list) else []:
+        balance = decimal_value(item.get("balance"))
+        equity = decimal_value(item.get("equity", balance))
+        available = decimal_value(item.get("availableMargin", item.get("available", 0)))
+        if balance or equity or available:
+            futures.append(
+                {
+                    "asset": str(item.get("asset", "")),
+                    "balance": balance,
+                    "equity": equity,
+                    "available": available,
+                    "unrealized": decimal_value(item.get("unrealizedProfit")),
+                }
+            )
+
+    positions_data = positions_payload.get("data") or []
+    if isinstance(positions_data, dict):
+        positions_data = positions_data.get("positions", [])
+    positions = []
+    for item in positions_data if isinstance(positions_data, list) else []:
+        amount = decimal_value(item.get("positionAmt"))
+        if amount:
+            positions.append(
+                {
+                    "symbol": str(item.get("symbol", "")),
+                    "side": str(item.get("positionSide", "")),
+                    "amount": amount,
+                    "entry": decimal_value(item.get("avgPrice", item.get("entryPrice", 0))),
+                    "mark": decimal_value(item.get("markPrice", item.get("currentPrice", 0))),
+                    "unrealized": decimal_value(item.get("unrealizedProfit")),
+                    "leverage": item.get("leverage", ""),
+                    "liquidation": decimal_value(item.get("liquidationPrice", 0)),
+                }
+            )
+    return {"spot": spot, "futures": futures, "positions": positions, "refreshed_at": int(time.time())}
+
+
 def csrf_token() -> str:
     token = session.get("csrf")
     if not token:
@@ -207,6 +268,42 @@ def index():
         key = credentials["api_key"]
         masked = f"{key[:4]}…{key[-4:]}" if len(key) >= 10 else "••••••••"
     return render_template("index.html", configured=bool(credentials), masked_key=masked)
+
+
+@app.post("/portfolio")
+@login_required
+def portfolio():
+    require_csrf()
+    now = time.monotonic()
+    last_refresh = float(session.get("portfolio_refresh_monotonic", 0))
+    if now - last_refresh < 5:
+        flash("Vui lòng chờ 5 giây trước khi refresh lại.", "error")
+        return redirect(url_for("index"))
+    session["portfolio_refresh_monotonic"] = now
+    credentials = load_credentials()
+    if not credentials:
+        flash("Chưa có credential BingX.", "error")
+        return redirect(url_for("index"))
+    try:
+        api_key, secret_key = credentials["api_key"], credentials["secret_key"]
+        spot_payload = signed_get("/openApi/spot/v1/account/balance", api_key, secret_key)
+        futures_payload = signed_get("/openApi/swap/v3/user/balance", api_key, secret_key)
+        positions_payload = signed_get("/openApi/swap/v2/user/positions", api_key, secret_key)
+        data = normalize_portfolio(spot_payload, futures_payload, positions_payload)
+        audit(
+            "portfolio_readonly_refresh",
+            True,
+            f"spot_assets={len(data['spot'])},futures_assets={len(data['futures'])},positions={len(data['positions'])}",
+        )
+        CONNECTION_TESTS.labels(result="portfolio_success").inc()
+        key = api_key
+        masked = f"{key[:4]}…{key[-4:]}" if len(key) >= 10 else "••••••••"
+        return render_template("index.html", configured=True, masked_key=masked, portfolio=data)
+    except (RuntimeError, ValueError) as exc:
+        audit("portfolio_readonly_refresh", False, type(exc).__name__)
+        CONNECTION_TESTS.labels(result="portfolio_error").inc()
+        flash(str(exc), "error")
+        return redirect(url_for("index"))
 
 
 @app.post("/credentials")

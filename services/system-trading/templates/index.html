@@ -22,5 +22,22 @@
   <form class="inline" method="post" action="{{ url_for('test_connection') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button type="submit">Test connection</button></form>
   <form class="inline" method="post" action="{{ url_for('delete_credentials') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><input style="width:120px;display:inline-block" name="confirm" placeholder="DELETE" autocomplete="off"><button class="danger" type="submit">Xóa credential</button></form>
 </section>{% endif %}
+{% if configured %}<section class="card">
+  <h2>Portfolio read-only</h2>
+  <p class="note">Đọc số dư Spot, Perpetual và vị thế đang mở trực tiếp từ BingX. Giá trị không được lưu hoặc ghi log.</p>
+  <form method="post" action="{{ url_for('portfolio') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button type="submit">Refresh portfolio</button></form>
+</section>{% endif %}
+{% if portfolio %}
+<section class="card"><h2>Spot balance</h2>
+  {% if portfolio.spot %}<div style="overflow:auto"><table><thead><tr><th>Asset</th><th>Free</th><th>Locked</th><th>Total</th></tr></thead><tbody>{% for row in portfolio.spot %}<tr><td>{{ row.asset }}</td><td>{{ row.free }}</td><td>{{ row.locked }}</td><td>{{ row.total }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Không có tài sản Spot với số dư khác 0.</p>{% endif %}
+</section>
+<section class="card"><h2>Perpetual balance</h2>
+  {% if portfolio.futures %}<div style="overflow:auto"><table><thead><tr><th>Asset</th><th>Balance</th><th>Equity</th><th>Available</th><th>Unrealized PnL</th></tr></thead><tbody>{% for row in portfolio.futures %}<tr><td>{{ row.asset }}</td><td>{{ row.balance }}</td><td>{{ row.equity }}</td><td>{{ row.available }}</td><td>{{ row.unrealized }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Không có số dư Perpetual khác 0 hoặc key chưa có quyền đọc Futures.</p>{% endif %}
+</section>
+<section class="card"><h2>Open positions</h2>
+  {% if portfolio.positions %}<div style="overflow:auto"><table><thead><tr><th>Symbol</th><th>Side</th><th>Amount</th><th>Entry</th><th>Mark</th><th>PnL</th><th>Leverage</th><th>Liquidation</th></tr></thead><tbody>{% for row in portfolio.positions %}<tr><td>{{ row.symbol }}</td><td>{{ row.side }}</td><td>{{ row.amount }}</td><td>{{ row.entry }}</td><td>{{ row.mark }}</td><td>{{ row.unrealized }}</td><td>{{ row.leverage }}</td><td>{{ row.liquidation }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Không có vị thế Perpetual đang mở.</p>{% endif %}
+  <p class="note">Refreshed at Unix time {{ portfolio.refreshed_at }} UTC.</p>
+</section>
+{% endif %}
 <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" type="submit">Đăng xuất</button></form>
 {% endblock %}
