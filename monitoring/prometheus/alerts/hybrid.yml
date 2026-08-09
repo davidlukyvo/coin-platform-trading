@@ -1,0 +1,20 @@
+groups:
+  - name: hybrid-signal-adapter
+    rules:
+      - alert: HybridSignalAdapterDown
+        expr: up{job="hybrid-signal-adapter"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Hybrid shadow signal adapter is unavailable
+      - alert: HybridSignalAdapterStale
+        expr: time() - hybrid_adapter_last_success_unixtime > 3900
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Hybrid shadow evaluation has not succeeded recently
+      - alert: HybridSignalAdapterErrors
+        expr: increase(hybrid_adapter_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: Hybrid shadow adapter reported evaluation errors

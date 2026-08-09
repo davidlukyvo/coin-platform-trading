@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -19,6 +19,8 @@ services:
         chmod 700 /host/paper
         chown -R 10005:10004 /host/paper-ui
         chmod 2750 /host/paper-ui
+        chown -R 10006:10006 /host/hybrid-signals
+        chmod 700 /host/hybrid-signals
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -234,6 +236,49 @@ services:
     networks:
       - paper-control
 
+  hybrid-signal-adapter:
+    build:
+      context: ./services/hybrid-signal-adapter
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      HYBRID_OUTPUT_ROOT: /data/hybrid-signals
+      HYBRID_DATA_EXCHANGE: ${HYBRID_DATA_EXCHANGE:-binance}
+      HYBRID_SYMBOLS: ${HYBRID_SYMBOLS:-BTCUSDT,ETHUSDT}
+      HYBRID_INTERVAL_SECONDS: ${HYBRID_INTERVAL_SECONDS:-60}
+      HYBRID_MAX_MARKET_AGE_SECONDS: ${HYBRID_MAX_MARKET_AGE_SECONDS:-3900}
+      HYBRID_MIN_RELATIVE_VOLUME: ${HYBRID_MIN_RELATIVE_VOLUME:-1.0}
+      HYBRID_MIN_RR: ${HYBRID_MIN_RR:-2.0}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/hybrid-signals:/data/hybrid-signals
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8060/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
   silver-processor:
     build:
       context: ./services/silver-processor
@@ -316,6 +361,8 @@ services:
       collector:
         condition: service_healthy
       bingx-collector:
+        condition: service_healthy
+      hybrid-signal-adapter:
         condition: service_healthy
       silver-processor:
         condition: service_healthy

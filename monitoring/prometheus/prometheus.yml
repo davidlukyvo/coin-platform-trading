@@ -30,6 +30,9 @@ scrape_configs:
   - job_name: strategy-research
     static_configs:
       - targets: ["strategy-research:8020"]
+  - job_name: hybrid-signal-adapter
+    static_configs:
+      - targets: ["hybrid-signal-adapter:8060"]
   - job_name: node-exporter
     static_configs:
       - targets: ["node-exporter:9100"]
