@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -15,6 +15,7 @@ services:
         chown -R 10002:10002 /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver
         chown -R 10003:10003 /host/research
         chown -R 10004:10004 /host/system-trading
+        chown -R 10005:10005 /host/paper
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -150,6 +151,7 @@ services:
       - ${SYSTEM_TRADING_SECRET_ROOT:-./secrets/system-trading}:/run/system-trading-secrets:ro
       - ${SYSTEM_TRADING_TLS_ROOT:-./secrets/system-trading-tls}:/run/system-trading-tls:ro
       - ${COIN_DATA_ROOT:-/data/coin-platform}/system-trading:/data
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper:/paper:ro
     ports:
       - "${SYSTEM_TRADING_BIND_ADDRESS:-127.0.0.1}:${SYSTEM_TRADING_PORT:-8443}:8443"
     healthcheck:
@@ -172,6 +174,58 @@ services:
       options: {max-size: "5m", max-file: "3"}
     networks:
       - coin-platform
+
+  paper-trading:
+    build:
+      context: ./services/paper-trading
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      PAPER_DATA_ROOT: /data/paper
+      PAPER_DATA_EXCHANGE: ${PAPER_DATA_EXCHANGE:-binance}
+      PAPER_SYMBOLS: ${PAPER_SYMBOLS:-BTCUSDT,ETHUSDT}
+      PAPER_INTERVAL_SECONDS: ${PAPER_INTERVAL_SECONDS:-60}
+      PAPER_STARTING_CASH: ${PAPER_STARTING_CASH:-10000}
+      PAPER_TARGET_NOTIONAL: ${PAPER_TARGET_NOTIONAL:-100}
+      PAPER_FEE_BPS: ${PAPER_FEE_BPS:-4}
+      PAPER_SLIPPAGE_BPS: ${PAPER_SLIPPAGE_BPS:-2}
+      PAPER_KILL_SWITCH: ${PAPER_KILL_SWITCH:-false}
+      RISK_MAX_ORDER_NOTIONAL: ${RISK_MAX_ORDER_NOTIONAL:-100}
+      RISK_MAX_SYMBOL_POSITION: ${RISK_MAX_SYMBOL_POSITION:-150}
+      RISK_MAX_GROSS_EXPOSURE: ${RISK_MAX_GROSS_EXPOSURE:-250}
+      RISK_MAX_DAILY_LOSS: ${RISK_MAX_DAILY_LOSS:-25}
+      RISK_MAX_DRAWDOWN_FRACTION: ${RISK_MAX_DRAWDOWN_FRACTION:-0.02}
+      RISK_MAX_TRADES_PER_DAY: ${RISK_MAX_TRADES_PER_DAY:-20}
+      RISK_MAX_MARKET_AGE_SECONDS: ${RISK_MAX_MARKET_AGE_SECONDS:-3900}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper:/data/paper
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8050/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - paper-control
 
   silver-processor:
     build:
@@ -285,6 +339,7 @@ services:
       options: {max-size: "10m", max-file: "3"}
     networks:
       - coin-platform
+      - paper-control
 
   grafana:
     image: grafana/grafana:13.1.0
@@ -395,4 +450,7 @@ services:
 
 networks:
   coin-platform:
+    driver: bridge
+  paper-control:
+    internal: true
     driver: bridge

@@ -37,6 +37,13 @@ services:
     labels:
       deployment.site: bamboo
 
+  paper-trading:
+    mem_limit: 384m
+    cpus: 0.5
+    labels:
+      deployment.site: bamboo
+      trading.mode: paper-only
+
   silver-processor:
     mem_limit: 384m
     cpus: 0.5

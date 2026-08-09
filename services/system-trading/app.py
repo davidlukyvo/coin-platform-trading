@@ -26,6 +26,7 @@ SECRET_DIR = Path(os.getenv("SYSTEM_TRADING_SECRET_DIR", "/run/system-trading-se
 DATA_DIR = Path(os.getenv("SYSTEM_TRADING_DATA_DIR", "/data"))
 VAULT_PATH = DATA_DIR / "bingx-credentials.enc"
 AUDIT_PATH = DATA_DIR / "audit.ndjson"
+PAPER_STATE_PATH = Path(os.getenv("PAPER_STATE_PATH", "/paper/latest-state.json"))
 BINGX_BASE_URL = os.getenv("BINGX_REST_BASE", "https://open-api.bingx.com").rstrip("/")
 
 
@@ -98,6 +99,16 @@ def load_credentials() -> dict[str, str] | None:
     except (InvalidToken, json.JSONDecodeError) as exc:
         LOG.error("Credential vault cannot be decrypted: %s", type(exc).__name__)
         raise RuntimeError("Credential vault is unreadable") from exc
+
+
+def load_paper_state() -> dict | None:
+    try:
+        if not PAPER_STATE_PATH.exists() or PAPER_STATE_PATH.stat().st_size > 1024 * 1024:
+            return None
+        state = json.loads(PAPER_STATE_PATH.read_text(encoding="utf-8"))
+        return state if state.get("mode") == "PAPER_ONLY" and state.get("live_trading") is False else None
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def save_credentials(api_key: str, secret_key: str) -> None:
@@ -267,7 +278,7 @@ def index():
     if credentials:
         key = credentials["api_key"]
         masked = f"{key[:4]}…{key[-4:]}" if len(key) >= 10 else "••••••••"
-    return render_template("index.html", configured=bool(credentials), masked_key=masked)
+    return render_template("index.html", configured=bool(credentials), masked_key=masked, paper=load_paper_state())
 
 
 @app.post("/portfolio")
@@ -298,7 +309,7 @@ def portfolio():
         CONNECTION_TESTS.labels(result="portfolio_success").inc()
         key = api_key
         masked = f"{key[:4]}…{key[-4:]}" if len(key) >= 10 else "••••••••"
-        return render_template("index.html", configured=True, masked_key=masked, portfolio=data)
+        return render_template("index.html", configured=True, masked_key=masked, portfolio=data, paper=load_paper_state())
     except (RuntimeError, ValueError) as exc:
         audit("portfolio_readonly_refresh", False, type(exc).__name__)
         CONNECTION_TESTS.labels(result="portfolio_error").inc()

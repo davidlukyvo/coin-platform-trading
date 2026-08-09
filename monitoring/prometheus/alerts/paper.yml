@@ -1,0 +1,18 @@
+groups:
+  - name: paper-trading
+    rules:
+      - alert: PaperTradingDown
+        expr: up{job="paper-trading"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Paper trading service is unavailable"}
+      - alert: PaperTradingStale
+        expr: time() - paper_trading_last_success_unixtime > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Paper trading cycle has not succeeded recently"}
+      - alert: PaperTradingDrawdownLimit
+        expr: paper_trading_drawdown >= 0.02
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Paper account reached its configured drawdown limit"}

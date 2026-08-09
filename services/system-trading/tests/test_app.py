@@ -82,6 +82,15 @@ def test_health_declares_trading_disabled(tmp_path):
     assert payload == {"status": "healthy", "trading_enabled": False, "dry_run": True}
 
 
+def test_paper_state_requires_explicit_paper_only_marker(tmp_path):
+    module = load_app(tmp_path)
+    module.PAPER_STATE_PATH = tmp_path / "paper-state.json"
+    module.PAPER_STATE_PATH.write_text('{"mode":"LIVE","live_trading":true}', encoding="utf-8")
+    assert module.load_paper_state() is None
+    module.PAPER_STATE_PATH.write_text('{"mode":"PAPER_ONLY","live_trading":false,"equity":10000}', encoding="utf-8")
+    assert module.load_paper_state()["equity"] == 10000
+
+
 def test_normalize_portfolio_filters_zero_and_positions(tmp_path):
     module = load_app(tmp_path)
     result = module.normalize_portfolio(

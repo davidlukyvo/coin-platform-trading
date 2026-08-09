@@ -21,6 +21,9 @@ scrape_configs:
       insecure_skip_verify: true
     static_configs:
       - targets: ["system-trading:8443"]
+  - job_name: paper-trading
+    static_configs:
+      - targets: ["paper-trading:8050"]
   - job_name: silver-processor
     static_configs:
       - targets: ["silver-processor:8010"]

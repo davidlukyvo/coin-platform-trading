@@ -1,0 +1,13 @@
+{
+  "annotations":{"list":[]},"editable":false,"graphTooltip":1,"id":null,
+  "panels":[
+    {"type":"stat","title":"Paper Equity","gridPos":{"h":6,"w":6,"x":0,"y":0},"targets":[{"expr":"paper_trading_equity","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2},"overrides":[]}},
+    {"type":"stat","title":"Gross Exposure","gridPos":{"h":6,"w":6,"x":6,"y":0},"targets":[{"expr":"paper_trading_gross_exposure","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2},"overrides":[]}},
+    {"type":"stat","title":"Drawdown","gridPos":{"h":6,"w":6,"x":12,"y":0},"targets":[{"expr":"paper_trading_drawdown","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit","decimals":3},"overrides":[]}},
+    {"type":"stat","title":"Open Paper Positions","gridPos":{"h":6,"w":6,"x":18,"y":0},"targets":[{"expr":"paper_trading_positions","refId":"A"}],"fieldConfig":{"defaults":{"decimals":0},"overrides":[]}},
+    {"type":"timeseries","title":"Paper Equity History","gridPos":{"h":9,"w":12,"x":0,"y":6},"targets":[{"expr":"paper_trading_equity","legendFormat":"equity","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD"},"overrides":[]}},
+    {"type":"timeseries","title":"Exposure and Drawdown","gridPos":{"h":9,"w":12,"x":12,"y":6},"targets":[{"expr":"paper_trading_gross_exposure","legendFormat":"exposure USD","refId":"A"},{"expr":"paper_trading_drawdown * 100","legendFormat":"drawdown %","refId":"B"}],"fieldConfig":{"defaults":{},"overrides":[]}}
+  ],
+  "refresh":"1m","schemaVersion":42,"tags":["trading","paper-only","risk"],"templating":{"list":[]},
+  "time":{"from":"now-24h","to":"now"},"timezone":"utc","title":"Paper Trading & Risk Engine","uid":"paper-trading-risk","version":1
+}
