@@ -52,6 +52,35 @@ def test_risk_rejects_oversized_order():
     assert evaluate(RiskEngine(RiskLimits()), intent(notional=100.01)).reason == "max_order_notional"
 
 
+def test_risk_allows_exit_above_entry_limit_when_it_only_reduces_position():
+    decision = evaluate(
+        RiskEngine(RiskLimits()),
+        intent(side="SELL", notional=100.25),
+        symbol_exposure=100.25,
+        gross_exposure=100.25,
+    )
+    assert decision.allowed and decision.reason == "allowed_risk_reducing_exit"
+
+
+@pytest.mark.parametrize("exposure", [0.0, 50.0])
+def test_risk_rejects_sell_that_exceeds_position(exposure):
+    decision = evaluate(
+        RiskEngine(RiskLimits()),
+        intent(side="SELL", notional=100.0),
+        symbol_exposure=exposure,
+        gross_exposure=exposure,
+    )
+    assert not decision.allowed and decision.reason == "sell_exceeds_position"
+
+
+def test_risk_reducing_exit_still_honors_kill_switch_and_stale_data():
+    sell = intent(side="SELL", notional=100.25)
+    context = {"symbol_exposure": 100.25, "gross_exposure": 100.25}
+    assert evaluate(RiskEngine(RiskLimits(), kill_switch=True), sell, **context).reason == "kill_switch"
+    stale = intent(side="SELL", notional=100.25, market_time=time.time() - 301)
+    assert evaluate(RiskEngine(RiskLimits()), stale, **context).reason == "stale_market_data"
+
+
 def test_paper_fill_models_fee_slippage_and_roundtrip(tmp_path):
     journal = Journal(tmp_path / "paper.db", 10000)
     broker = PaperBroker(journal, fee_bps=4, slippage_bps=2)

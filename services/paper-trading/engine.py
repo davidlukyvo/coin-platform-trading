@@ -114,7 +114,17 @@ class RiskEngine:
             return RiskDecision(False, "invalid_numeric_value")
         if time.time() - intent.market_time > self.limits.max_market_age_seconds:
             return RiskDecision(False, "stale_market_data")
-        if intent.notional <= 0 or intent.notional > self.limits.max_order_notional + 1e-9:
+        if intent.notional <= 0:
+            return RiskDecision(False, "invalid_order_notional")
+        # Entry limits must never prevent a risk-reducing exit. A SELL remains
+        # long-only and may not exceed the marked value of the held position.
+        # The broker independently caps fill quantity to the quantity on hand.
+        if intent.side == "SELL":
+            tolerance = max(1e-9, symbol_exposure * 1e-9)
+            if symbol_exposure <= 0 or intent.notional > symbol_exposure + tolerance:
+                return RiskDecision(False, "sell_exceeds_position")
+            return RiskDecision(True, "allowed_risk_reducing_exit")
+        if intent.notional > self.limits.max_order_notional + 1e-9:
             return RiskDecision(False, "max_order_notional")
         resulting_symbol = symbol_exposure + intent.notional if intent.side == "BUY" else max(0.0, symbol_exposure - intent.notional)
         resulting_gross = gross_exposure + intent.notional if intent.side == "BUY" else max(0.0, gross_exposure - intent.notional)
