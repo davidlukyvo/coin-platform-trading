@@ -30,7 +30,7 @@ def load_app(tmp_path: Path):
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    module.app.config.update(TESTING=True)
+    module.app.config.update(TESTING=True, SESSION_COOKIE_SECURE=False)
     return module
 
 

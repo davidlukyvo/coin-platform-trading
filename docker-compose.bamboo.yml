@@ -30,6 +30,10 @@ services:
   system-trading:
     mem_limit: 128m
     cpus: 0.25
+    ports: !override
+      - "172.26.12.120:8443:8443"
+    environment:
+      SYSTEM_TRADING_PUBLIC_URL: https://172.26.12.120:8443
     labels:
       deployment.site: bamboo
 

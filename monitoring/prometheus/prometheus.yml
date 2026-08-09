@@ -16,8 +16,11 @@ scrape_configs:
     static_configs:
       - targets: ["bingx-collector:8030"]
   - job_name: system-trading
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
     static_configs:
-      - targets: ["system-trading:8040"]
+      - targets: ["system-trading:8443"]
   - job_name: silver-processor
     static_configs:
       - targets: ["silver-processor:8010"]

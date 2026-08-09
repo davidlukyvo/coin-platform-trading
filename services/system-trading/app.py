@@ -54,7 +54,7 @@ app.secret_key = hmac.new(MASTER_KEY, b"system-trading-session-v1", hashlib.sha2
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
-    SESSION_COOKIE_SECURE=False,  # Access is restricted to an SSH tunnel on 127.0.0.1.
+    SESSION_COOKIE_SECURE=True,
     PERMANENT_SESSION_LIFETIME=1800,
     MAX_CONTENT_LENGTH=16 * 1024,
 )
