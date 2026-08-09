@@ -48,7 +48,10 @@ class RiskDecision:
 class Journal:
     def __init__(self, path: Path, starting_cash: float):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
+        # The engine is initialized by the main thread and its periodic cycle is
+        # executed by the scheduler thread. Only that scheduler writes after
+        # startup, so allow the connection to follow the engine across threads.
+        self.connection = sqlite3.connect(path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=FULL")

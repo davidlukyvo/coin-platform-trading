@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 
@@ -96,6 +97,16 @@ def test_engine_writes_ui_projection_outside_private_journal(tmp_path, monkeypat
     assert (journal_root / "paper.db").exists()
     assert not (journal_root / "latest-state.json").exists()
     assert (state_root / "latest-state.json").exists()
+
+
+def test_engine_can_run_periodic_cycle_from_scheduler_thread(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: synthetic_bars(True))
+    paper = PaperEngine(Path("unused"), tmp_path, symbols=("BTCUSDT",))
+    paper.run_once()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        state = executor.submit(paper.run_once).result()
+    assert state["mode"] == "PAPER_ONLY"
+    assert len(state["recent_fills"]) == 1
 
 
 def test_kill_switch_journals_rejection(tmp_path, monkeypatch):
