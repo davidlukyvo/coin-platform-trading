@@ -10,13 +10,14 @@ Run on the deployment host from the repository:
 
 ```bash
 python3 scripts/init-system-trading-secrets.py
-chmod 700 secrets secrets/system-trading
 ```
 
 The command prompts for a dedicated UI password and creates:
 
-- `secrets/system-trading/master.key`: Fernet master key, mode `0600`;
-- `secrets/system-trading/admin-password.scrypt`: salted scrypt password hash, mode `0600`.
+- `secrets/system-trading/master.key`: Fernet master key, root-owned and group-readable only by service GID `10004`;
+- `secrets/system-trading/admin-password.scrypt`: salted scrypt password hash with the same restricted ownership.
+
+The directory is mode `0750` and both files are mode `0640`. This lets the non-root container UID/GID `10004` read the mounted secrets without making them world-readable.
 
 Neither file is tracked by Git. Back up `master.key` to a protected offline location. Do not copy either value into `.env`, chat, tickets, shell history, or documentation.
 

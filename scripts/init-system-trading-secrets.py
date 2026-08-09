@@ -41,11 +41,16 @@ def main() -> int:
     try:
         write_exclusive(master_path, master_key + b"\n")
         write_exclusive(password_path, encoded + b"\n")
+        os.chown(root, 0, 10004)
+        os.chmod(root, 0o750)
+        for path in (master_path, password_path):
+            os.chown(path, 0, 10004)
+            os.chmod(path, 0o640)
     except Exception:
         master_path.unlink(missing_ok=True)
         password_path.unlink(missing_ok=True)
         raise
-    print(f"Created encrypted-vault key and password hash under {root}")
+    print(f"Created encrypted-vault key and password hash under {root} for service group 10004")
     print("Back up master.key securely; losing it makes the credential vault unreadable.")
     return 0
 
