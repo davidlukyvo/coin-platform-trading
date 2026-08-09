@@ -280,4 +280,5 @@ class PaperEngine:
         temporary = self.data_root / "latest-state.json.tmp"
         temporary.write_text(json.dumps(state, separators=(",", ":"), default=str) + "\n", encoding="utf-8")
         os.replace(temporary, self.data_root / "latest-state.json")
+        os.chmod(self.data_root / "latest-state.json", 0o600)
         return state

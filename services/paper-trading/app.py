@@ -9,6 +9,8 @@ from engine import PaperEngine, RiskLimits
 from prometheus_client import Counter, Gauge, generate_latest
 
 
+os.umask(0o077)
+
 EQUITY = Gauge("paper_trading_equity", "Paper account equity")
 EXPOSURE = Gauge("paper_trading_gross_exposure", "Paper gross exposure")
 DRAWDOWN = Gauge("paper_trading_drawdown", "Paper drawdown fraction")

@@ -16,6 +16,7 @@ services:
         chown -R 10003:10003 /host/research
         chown -R 10004:10004 /host/system-trading
         chown -R 10005:10005 /host/paper
+        chmod 700 /host/paper
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
