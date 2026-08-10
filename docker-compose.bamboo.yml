@@ -75,7 +75,7 @@ services:
       deployment.site: bamboo
 
   grafana:
-    mem_limit: 256m
+    mem_limit: 512m
     cpus: 0.5
     labels:
       deployment.site: bamboo
