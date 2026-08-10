@@ -324,6 +324,43 @@ services:
     networks:
       - coin-platform
 
+  silver-quality-exporter:
+    build:
+      context: ./services/silver-quality-exporter
+    restart: unless-stopped
+    depends_on:
+      silver-processor:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      SILVER_QUALITY_INTERVAL_SECONDS: ${SILVER_QUALITY_INTERVAL_SECONDS:-300}
+      SILVER_QUALITY_WARNING_LAG_SECONDS: ${SILVER_QUALITY_WARNING_LAG_SECONDS:-1800}
+      SILVER_QUALITY_STALE_LAG_SECONDS: ${SILVER_QUALITY_STALE_LAG_SECONDS:-3900}
+      SILVER_QUALITY_SOURCES: ${SILVER_QUALITY_SOURCES:-binance:spot:websocket:BTCUSDT:kline_1m;binance:spot:websocket:ETHUSDT:kline_1m;bingx:spot:websocket:BTC-USDT:kline_1min;bingx:spot:websocket:ETH-USDT:kline_1min}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
   silver-processor:
     build:
       context: ./services/silver-processor

@@ -1,0 +1,22 @@
+groups:
+  - name: silver-quality
+    rules:
+      - alert: SilverQualityExporterDown
+        expr: up{job="silver-quality-exporter"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Silver quality exporter is unavailable"}
+      - alert: SilverSymbolStale
+        expr: silver_symbol_health_status == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Silver symbol is stale or materially incomplete"}
+      - alert: SilverQualityScanStale
+        expr: time() - silver_quality_last_success_unixtime > 900
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Silver quality scan has not completed for 15 minutes"}
+      - alert: SilverQualityScanErrors
+        expr: increase(silver_quality_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Silver quality scan reported an error"}

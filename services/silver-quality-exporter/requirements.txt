@@ -1,0 +1,2 @@
+duckdb==1.4.4
+prometheus-client==0.24.1
