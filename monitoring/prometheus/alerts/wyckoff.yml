@@ -1,0 +1,20 @@
+groups:
+  - name: wyckoff-shadow-adapter
+    rules:
+      - alert: WyckoffShadowAdapterDown
+        expr: up{job="wyckoff-shadow-adapter"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff shadow adapter is unavailable
+      - alert: WyckoffShadowAdapterStale
+        expr: time() - wyckoff_adapter_last_success_unixtime > 3900
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff shadow evaluation has not succeeded recently
+      - alert: WyckoffShadowAdapterErrors
+        expr: increase(wyckoff_adapter_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff shadow adapter reported evaluation errors
