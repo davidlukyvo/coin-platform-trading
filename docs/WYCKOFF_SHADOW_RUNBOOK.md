@@ -29,9 +29,7 @@ Every result is fixed to `SHADOW_ONLY`, `liveTrading=false`,
 
 ```sh
 docker compose config --quiet
-python3 -m venv /tmp/wyckoff-test
-/tmp/wyckoff-test/bin/pip install -r services/wyckoff-shadow-adapter/requirements.txt -r services/wyckoff-shadow-adapter/requirements-dev.txt
-/tmp/wyckoff-test/bin/pytest -q services/wyckoff-shadow-adapter
+docker build --target test services/wyckoff-shadow-adapter
 docker compose build wyckoff-shadow-adapter
 docker compose up --no-deps storage-init
 docker compose up -d --no-deps wyckoff-shadow-adapter
