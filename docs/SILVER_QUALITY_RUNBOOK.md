@@ -26,6 +26,9 @@ Prometheus labels.
 - Per-symbol lag defaults are yellow after 30 minutes and red after 65 minutes,
   matching the current hourly/batched Silver sealing model. The separate Silver
   processor heartbeat remains yellow/red at 120/180 seconds.
+- Continuity counts gaps only between the first and latest available candle.
+  `silver_symbol_trailing_candles` separately counts fully closed minutes after
+  the latest Silver candle, so 100% continuity can coexist with stale freshness.
 - 5m/15m/1h/4h readiness means derivable on demand from enough healthy 1m
   history. It does not mean live execution is enabled.
 - Backfill state is not exposed because no authoritative persistent backfill job

@@ -31,9 +31,10 @@ LAG = Gauge("silver_symbol_lag_seconds", "Seconds since latest closed 1m candle"
 ROWS = Gauge("silver_symbol_rows", "Distinct closed 1m Silver rows", (*LABELS, "window"))
 EXPECTED_ROWS = Gauge("silver_symbol_expected_rows", "Expected continuous 1m rows", (*LABELS, "window"))
 MISSING = Gauge("silver_symbol_missing_candles", "Missing 1m candles inside measured coverage", (*LABELS, "window"))
+TRAILING = Gauge("silver_symbol_trailing_candles", "Expected closed 1m candles not yet materialized after latest Silver candle", LABELS)
 COMPLETENESS = Gauge("silver_symbol_completeness_ratio", "Silver 1m completeness ratio", (*LABELS, "window"))
 STATUS = Gauge("silver_symbol_health_status", "Silver symbol status: 2 healthy, 1 delayed, 0 stale/gapped", LABELS)
-READY = Gauge("silver_timeframe_ready", "Timeframe derivable from complete Silver 1m", (*LABELS, "timeframe", "mode"))
+READY = Gauge("silver_timeframe_ready", "Timeframe available or derivable from complete Silver 1m", (*LABELS, "timeframe", "mode", "readiness"))
 LAST_SCAN = Gauge("silver_quality_last_success_unixtime", "Last complete quality scan")
 SCAN_DURATION = Gauge("silver_quality_scan_duration_seconds", "Quality scan duration")
 ERRORS = Counter("silver_quality_errors_total", "Quality scan errors", ["exchange", "symbol", "type"])
@@ -51,6 +52,7 @@ def execute() -> None:
             EARLIEST.labels(*labels).set(quality.earliest); LATEST.labels(*labels).set(quality.latest)
             LAST_CLOSE.labels(*labels).set(quality.last_close); LAG.labels(*labels).set(quality.lag_seconds)
             STATUS.labels(*labels).set(quality.status)
+            TRAILING.labels(*labels).set(quality.trailing_today)
             for window, rows, expected, missing, ratio in (
                 ("coverage", quality.rows_total, quality.expected_total, quality.missing_total, quality.completeness_total),
                 ("today", quality.rows_today, quality.expected_today, quality.missing_today, quality.completeness_today),
@@ -58,7 +60,8 @@ def execute() -> None:
                 ROWS.labels(*labels, window).set(rows); EXPECTED_ROWS.labels(*labels, window).set(expected)
                 MISSING.labels(*labels, window).set(missing); COMPLETENESS.labels(*labels, window).set(ratio)
             for timeframe, ready in timeframe_readiness(quality).items():
-                READY.labels(*labels, timeframe, "on_demand").set(ready)
+                readiness = "available" if timeframe == "1m" else "derivable"
+                READY.labels(*labels, timeframe, "on_demand", readiness).set(ready)
         except Exception as exc:
             failures += 1; STATUS.labels(*labels).set(0)
             ERRORS.labels(source.exchange, source.symbol, type(exc).__name__).inc()

@@ -28,6 +28,7 @@ class Quality:
     rows_today: int
     expected_today: int
     missing_today: int
+    trailing_today: int
     completeness_total: float
     completeness_today: float
     lag_seconds: float
@@ -78,14 +79,16 @@ def scan(root: Path, source: Source, now: float, warning_lag: int = 1800, stale_
     earliest, latest, last_close, rows_total, rows_today = float(row[0]), float(row[1]), float(row[2]), int(row[3]), int(row[4])
     expected_total = expected_minutes(earliest, latest)
     expected_today = expected_minutes(midnight, min(latest, closed_minute)) if latest >= midnight else 0
+    expected_wall_today = expected_minutes(midnight, closed_minute) if closed_minute >= midnight else 0
     missing_total = max(0, expected_total - rows_total)
     missing_today = max(0, expected_today - rows_today)
+    trailing_today = max(0, expected_wall_today - expected_today)
     completeness_total = rows_total / expected_total if expected_total else 0.0
     completeness_today = rows_today / expected_today if expected_today else 0.0
     lag = max(0.0, now - last_close)
     status = classify(lag, completeness_today, warning_lag, stale_lag)
     return Quality(earliest, latest, last_close, rows_total, expected_total, missing_total, rows_today,
-                   expected_today, missing_today, completeness_total, completeness_today, lag, status)
+                   expected_today, missing_today, trailing_today, completeness_total, completeness_today, lag, status)
 
 
 def timeframe_readiness(quality: Quality) -> dict[str, int]:

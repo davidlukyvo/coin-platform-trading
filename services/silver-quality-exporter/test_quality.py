@@ -3,7 +3,7 @@ from quality import Quality, classify, expected_minutes, parse_sources, timefram
 
 def quality(rows=6000, status=2, completeness=1.0):
     return Quality(0, 5999 * 60, 5999 * 60 + 59, rows, 6000, 6000 - rows,
-                   100, 100, 0, rows / 6000, completeness, 30, status)
+                   100, 100, 0, 0, rows / 6000, completeness, 30, status)
 
 
 def test_parse_sources_is_bounded_and_explicit():
