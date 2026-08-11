@@ -41,11 +41,33 @@
 {% endif %}
 <section class="card"><h2>Paper trading + Risk engine</h2>
   {% if paper %}
-  <div class="status"><span>Mode: <b>{{ paper.mode }}</b></span><span>Live trading: <b>OFF</b></span><span>Kill switch: <b>{{ 'ON' if paper.kill_switch else 'OFF' }}</b></span></div>
-  <div style="overflow:auto"><table><thead><tr><th>Cash</th><th>Equity</th><th>Gross exposure</th><th>Drawdown</th><th>Strategy</th></tr></thead><tbody><tr><td>{{ '%.2f'|format(paper.cash) }} USDT</td><td>{{ '%.2f'|format(paper.equity) }} USDT</td><td>{{ '%.2f'|format(paper.gross_exposure) }} USDT</td><td>{{ '%.4f'|format(paper.drawdown * 100) }}%</td><td>{{ paper.strategy }}</td></tr></tbody></table></div>
-  <h3>Paper positions</h3>{% set open_positions = paper.positions|selectattr('quantity','gt',0)|list %}
-  {% if open_positions %}<div style="overflow:auto"><table><thead><tr><th>Symbol</th><th>Quantity</th><th>Average entry</th><th>Mark</th></tr></thead><tbody>{% for row in open_positions %}<tr><td>{{ row.symbol }}</td><td>{{ row.quantity }}</td><td>{{ row.average_entry }}</td><td>{{ row.mark_price }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Chưa có vị thế paper.</p>{% endif %}
-  <p class="note">Updated {{ paper.updated_at }}. Giới hạn: order {{ paper.limits.max_order_notional }} USDT; gross {{ paper.limits.max_gross_exposure }} USDT; daily loss {{ paper.limits.max_daily_loss }} USDT; drawdown {{ paper.limits.max_drawdown_fraction * 100 }}%.</p>
+  <div class="status"><span>Mode: <b>{{ paper.mode }}</b></span><span>Live trading: <b class="positive">OFF</b></span><span>Kill switch: <b class="{{ 'warning' if paper.kill_switch else 'positive' }}">{{ 'ON' if paper.kill_switch else 'OFF' }}</b></span><span>Data: <b>{{ paper.exchange_data|upper }}</b></span><span>Strategy: <b>{{ paper.strategy }}</b></span></div>
+  <div class="kpis">
+    <div class="kpi"><small>Starting equity</small><b>{{ '%.2f'|format(paper.starting_equity|default(10000)) }} USDT</b></div>
+    <div class="kpi"><small>Current equity</small><b>{{ '%.2f'|format(paper.equity) }} USDT</b></div>
+    <div class="kpi"><small>Net result</small><b class="{{ 'positive' if paper.net_result >= 0 else 'negative' }}">{{ '%+.2f'|format(paper.net_result) }} USDT</b></div>
+    <div class="kpi"><small>Drawdown</small><b class="{{ 'negative' if paper.drawdown >= paper.limits.max_drawdown_fraction else '' }}">{{ '%.4f'|format(paper.drawdown * 100) }}%</b></div>
+    <div class="kpi"><small>Cash</small><b>{{ '%.2f'|format(paper.cash) }} USDT</b></div>
+    <div class="kpi"><small>Gross exposure</small><b>{{ '%.2f'|format(paper.gross_exposure) }} USDT</b></div>
+    <div class="kpi"><small>Realized PnL</small><b class="{{ 'positive' if paper.summary.realized_pnl >= 0 else 'negative' }}">{{ '%+.2f'|format(paper.summary.realized_pnl) }} USDT</b></div>
+    <div class="kpi"><small>Fees paid</small><b>{{ '%.2f'|format(paper.summary.fees_total) }} USDT</b></div>
+  </div>
+
+  <h3>Hệ thống đang quyết định gì?</h3>
+  {% if paper.latest_signals %}<div style="overflow:auto"><table><thead><tr><th>Symbol</th><th>Desired</th><th>Decision</th><th>Reason</th><th>Time</th></tr></thead><tbody>{% for row in paper.latest_signals %}<tr><td>{{ row.symbol }}</td><td>{{ 'IN POSITION' if row.desired else 'OUT / EXIT' }}</td><td>{{ row.decision }}</td><td>{{ row.reason }}</td><td>{{ row.timestamp|utc }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Chưa có tín hiệu được xử lý.</p>{% endif %}
+
+  <h3>Hoạt động tích lũy</h3>
+  <div style="overflow:auto"><table><thead><tr><th>Signals</th><th>Orders</th><th>Fills</th><th>Fills today</th><th>Closed trades</th><th>Wins / Losses</th><th>Win rate</th><th>Risk allowed / rejected</th></tr></thead><tbody><tr><td>{{ paper.summary.signals_total }}</td><td>{{ paper.summary.orders_total }}</td><td>{{ paper.summary.fills_total }}</td><td>{{ paper.summary.fills_today }}</td><td>{{ paper.summary.closed_trades }}</td><td>{{ paper.summary.winning_trades }} / {{ paper.summary.losing_trades }}</td><td>{{ '%.1f'|format(paper.summary.win_rate * 100) }}%</td><td>{{ paper.summary.risk_allowed }} / {{ paper.summary.risk_rejected }}</td></tr></tbody></table></div>
+
+  <h3>Paper positions đang mở</h3>
+  {% if paper.open_positions %}<div style="overflow:auto"><table><thead><tr><th>Symbol</th><th>Quantity</th><th>Average entry</th><th>Mark</th><th>Unrealized PnL</th></tr></thead><tbody>{% for row in paper.open_positions %}<tr><td>{{ row.symbol }}</td><td>{{ '%.8f'|format(row.quantity) }}</td><td>{{ '%.4f'|format(row.average_entry) }}</td><td>{{ '%.4f'|format(row.mark_price) }}</td><td class="{{ 'positive' if row.unrealized_pnl >= 0 else 'negative' }}">{{ '%+.4f'|format(row.unrealized_pnl) }} USDT</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Hiện không có vị thế đang mở. Các lệnh đã đóng vẫn được giữ trong lịch sử bên dưới.</p>{% endif %}
+
+  <h3>20 lượt khớp gần nhất</h3>
+  {% if paper.recent_fills %}<div style="overflow:auto"><table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Quantity</th><th>Price</th><th>Notional</th><th>Fee</th><th>Realized PnL</th></tr></thead><tbody>{% for row in paper.recent_fills %}<tr><td>{{ row.timestamp|utc }}</td><td>{{ row.symbol }}</td><td>{{ row.side }}</td><td>{{ '%.8f'|format(row.quantity) }}</td><td>{{ '%.4f'|format(row.price) }}</td><td>{{ '%.2f'|format(row.notional) }}</td><td>{{ '%.4f'|format(row.fee) }}</td><td class="{{ 'positive' if row.realized_pnl > 0 else 'negative' if row.realized_pnl < 0 else '' }}">{{ '%+.4f'|format(row.realized_pnl) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Chưa có lượt khớp mô phỏng.</p>{% endif %}
+
+  <h3>20 quyết định Risk Engine gần nhất</h3>
+  {% if paper.recent_risk_events %}<div style="overflow:auto"><table><thead><tr><th>Time</th><th>Symbol</th><th>Decision</th><th>Reason</th></tr></thead><tbody>{% for row in paper.recent_risk_events %}<tr><td>{{ row.timestamp|utc }}</td><td>{{ row.symbol }}</td><td class="{{ 'positive' if row.allowed else 'negative' }}">{{ 'ALLOWED' if row.allowed else 'REJECTED' }}</td><td>{{ row.reason }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="note">Chưa có lệnh cần Risk Engine đánh giá.</p>{% endif %}
+  <p class="note">Cập nhật {{ paper.updated_at }}. Giới hạn: mỗi order {{ paper.limits.max_order_notional }} USDT; gross {{ paper.limits.max_gross_exposure }} USDT; daily loss {{ paper.limits.max_daily_loss }} USDT; drawdown {{ paper.limits.max_drawdown_fraction * 100 }}%. Win rate tính trên các lệnh SELL đóng vị thế; net result là equity hiện tại trừ vốn paper ban đầu.</p>
   {% else %}<p class="note">Paper engine chưa có state hợp lệ. Live trading vẫn OFF.</p>{% endif %}
 </section>
 <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="secondary" type="submit">Đăng xuất</button></form>

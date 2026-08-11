@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
@@ -28,6 +29,7 @@ VAULT_PATH = DATA_DIR / "bingx-credentials.enc"
 AUDIT_PATH = DATA_DIR / "audit.ndjson"
 PAPER_STATE_PATH = Path(os.getenv("PAPER_STATE_PATH", "/paper/latest-state.json"))
 BINGX_BASE_URL = os.getenv("BINGX_REST_BASE", "https://open-api.bingx.com").rstrip("/")
+UTC = timezone.utc
 
 
 def _read_secret(name: str) -> bytes:
@@ -106,7 +108,35 @@ def load_paper_state() -> dict | None:
         if not PAPER_STATE_PATH.exists() or PAPER_STATE_PATH.stat().st_size > 1024 * 1024:
             return None
         state = json.loads(PAPER_STATE_PATH.read_text(encoding="utf-8"))
-        return state if state.get("mode") == "PAPER_ONLY" and state.get("live_trading") is False else None
+        if state.get("mode") != "PAPER_ONLY" or state.get("live_trading") is not False:
+            return None
+        state.setdefault("summary", {
+            "signals_total": 0, "orders_total": 0, "fills_total": 0, "fills_today": 0,
+            "closed_trades": 0, "winning_trades": 0, "losing_trades": 0,
+            "fees_total": 0.0, "realized_pnl": 0.0, "risk_allowed": 0,
+            "risk_rejected": 0, "win_rate": 0.0,
+        })
+        state.setdefault("recent_fills", [])
+        state.setdefault("recent_risk_events", [])
+        state.setdefault("recent_signals", [])
+        state.setdefault("positions", [])
+        state["net_result"] = float(state.get("equity", 0)) - float(state.get("starting_equity", 10000))
+        state["open_positions"] = []
+        for position in state.get("positions", []):
+            if float(position.get("quantity", 0)) <= 0:
+                continue
+            item = dict(position)
+            item["unrealized_pnl"] = (
+                float(item.get("mark_price", 0)) - float(item.get("average_entry", 0))
+            ) * float(item.get("quantity", 0))
+            state["open_positions"].append(item)
+        latest = {}
+        for signal in state.get("recent_signals", []):
+            symbol = str(signal.get("symbol", ""))
+            if symbol and symbol not in latest:
+                latest[symbol] = signal
+        state["latest_signals"] = list(latest.values())
+        return state
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -215,6 +245,16 @@ def csrf_token() -> str:
 
 
 app.jinja_env.globals["csrf_token"] = csrf_token
+
+
+def format_utc(value) -> str:
+    try:
+        return datetime.fromtimestamp(float(value), UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (TypeError, ValueError, OSError):
+        return "-"
+
+
+app.jinja_env.filters["utc"] = format_utc
 
 
 def require_csrf() -> None:

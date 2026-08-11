@@ -91,6 +91,22 @@ def test_paper_state_requires_explicit_paper_only_marker(tmp_path):
     assert module.load_paper_state()["equity"] == 10000
 
 
+def test_paper_state_enriches_activity_without_changing_safety_boundary(tmp_path):
+    module = load_app(tmp_path)
+    module.PAPER_STATE_PATH = tmp_path / "paper-state.json"
+    module.PAPER_STATE_PATH.write_text(
+        '{"mode":"PAPER_ONLY","live_trading":false,"starting_equity":10000,"equity":9998,'
+        '"positions":[{"symbol":"BTCUSDT","quantity":0.01,"average_entry":60000,"mark_price":60100}],'
+        '"recent_signals":[{"timestamp":1,"symbol":"BTCUSDT","decision":"HOLD","reason":"target_already_satisfied"}],'
+        '"recent_fills":[],"recent_risk_events":[]}', encoding="utf-8"
+    )
+    state = module.load_paper_state()
+    assert state["net_result"] == -2
+    assert state["open_positions"][0]["unrealized_pnl"] == 1
+    assert state["latest_signals"][0]["symbol"] == "BTCUSDT"
+    assert state["live_trading"] is False
+
+
 def test_normalize_portfolio_filters_zero_and_positions(tmp_path):
     module = load_app(tmp_path)
     result = module.normalize_portfolio(

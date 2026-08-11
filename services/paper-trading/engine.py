@@ -94,6 +94,37 @@ class Journal:
         rows = self.connection.execute("SELECT timestamp,symbol,allowed,reason FROM risk_events ORDER BY timestamp DESC LIMIT ?", (limit,))
         return [dict(row) for row in rows]
 
+    def recent_signals(self, limit: int = 20) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT timestamp,symbol,strategy,desired,decision,reason FROM signals ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(row) for row in rows]
+
+    def summary(self) -> dict:
+        start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        row = self.connection.execute(
+            """
+            SELECT
+              (SELECT count(*) FROM signals) AS signals_total,
+              (SELECT count(*) FROM orders) AS orders_total,
+              (SELECT count(*) FROM fills) AS fills_total,
+              (SELECT count(*) FROM fills WHERE timestamp >= ?) AS fills_today,
+              (SELECT count(*) FROM fills WHERE side='SELL') AS closed_trades,
+              (SELECT count(*) FROM fills WHERE side='SELL' AND realized_pnl > 0) AS winning_trades,
+              (SELECT count(*) FROM fills WHERE side='SELL' AND realized_pnl < 0) AS losing_trades,
+              (SELECT coalesce(sum(fee),0) FROM fills) AS fees_total,
+              (SELECT coalesce(sum(realized_pnl),0) FROM fills) AS realized_pnl,
+              (SELECT count(*) FROM risk_events WHERE allowed=1) AS risk_allowed,
+              (SELECT count(*) FROM risk_events WHERE allowed=0) AS risk_rejected
+            """,
+            (start,),
+        ).fetchone()
+        result = dict(row)
+        closed = int(result["closed_trades"])
+        result["win_rate"] = float(result["winning_trades"]) / closed if closed else 0.0
+        return result
+
 
 class RiskEngine:
     def __init__(self, limits: RiskLimits, kill_switch: bool = False):
@@ -223,6 +254,7 @@ class PaperEngine:
                  fee_bps: float = 4.0, slippage_bps: float = 2.0, kill_switch: bool = False, state_root: Path | None = None):
         self.silver_root, self.data_root, self.exchange, self.symbols = silver_root, data_root, exchange, symbols
         self.state_root = state_root or data_root
+        self.starting_cash = starting_cash
         self.target_notional = target_notional
         self.limits = limits or RiskLimits(allowed_symbols=symbols)
         self.journal = Journal(data_root / "paper.db", starting_cash)
@@ -286,8 +318,10 @@ class PaperEngine:
         state = {
             "mode": "PAPER_ONLY", "live_trading": False, "strategy": "ema_trend", "exchange_data": self.exchange,
             "updated_at": datetime.now(UTC).isoformat(), "cash": float(self.journal.account()["cash"]), "equity": equity,
+            "starting_equity": self.starting_cash,
             "gross_exposure": gross, "drawdown": drawdown, "kill_switch": self.risk.kill_switch,
             "limits": asdict(self.limits), "positions": [dict(row) for row in self.journal.positions().values()],
+            "summary": self.journal.summary(), "recent_signals": self.journal.recent_signals(),
             "recent_fills": self.journal.recent_fills(), "recent_risk_events": self.journal.recent_risk_events(),
         }
         self.state_root.mkdir(parents=True, exist_ok=True)

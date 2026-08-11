@@ -93,6 +93,11 @@ def test_paper_fill_models_fee_slippage_and_roundtrip(tmp_path):
     assert sell["price"] < 99
     assert sell["realized_pnl"] < 0
     assert journal.trades_today() == 2
+    summary = journal.summary()
+    assert summary["orders_total"] == summary["fills_total"] == 2
+    assert summary["closed_trades"] == 1
+    assert summary["losing_trades"] == 1
+    assert summary["fees_total"] > 0
 
 
 def synthetic_bars(up=True):
@@ -111,6 +116,10 @@ def test_engine_is_exactly_once_for_same_bar(tmp_path, monkeypatch):
     assert len(first["recent_fills"]) == 1
     assert len(second["recent_fills"]) == 1
     assert first["mode"] == "PAPER_ONLY" and first["live_trading"] is False
+    assert first["summary"]["signals_total"] == 1
+    assert first["summary"]["fills_total"] == 1
+    assert first["recent_signals"][0]["decision"] == "ALLOWED"
+    assert first["starting_equity"] == 10000
     assert (tmp_path / "latest-state.json").exists()
 
 
