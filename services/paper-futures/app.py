@@ -17,6 +17,8 @@ EXPOSURE = Gauge("paper_futures_gross_notional", "Paper futures gross notional",
 DRAWDOWN = Gauge("paper_futures_drawdown", "Paper futures drawdown", ["strategy"])
 POSITIONS = Gauge("paper_futures_positions", "Paper futures open positions", ["strategy", "side"])
 LIQUIDATIONS = Gauge("paper_futures_liquidations_total", "Paper futures simulated liquidations", ["strategy"])
+POSITION_PRICE = Gauge("paper_futures_position_price", "Paper futures position price levels", ["strategy", "symbol", "side", "level"])
+UNREALIZED = Gauge("paper_futures_unrealized_pnl", "Paper futures position unrealized PnL", ["strategy", "symbol", "side"])
 ERRORS = Counter("paper_futures_errors_total", "Paper futures cycle errors", ["type"])
 state = {"healthy": False, "error": None}
 
@@ -41,12 +43,17 @@ engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.g
 def execute():
     try:
         result = engine.run_once()
-        POSITIONS.clear()
+        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear()
         for account in result["accounts"]:
             name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); EXPOSURE.labels(name).set(account["gross_notional"])
             DRAWDOWN.labels(name).set(account["drawdown"]); LIQUIDATIONS.labels(name).set(account["summary"]["liquidations"])
             for side in ("LONG", "SHORT"):
                 POSITIONS.labels(name, side).set(sum(1 for x in account["positions"] if x["side"] == side))
+            for position in account["positions"]:
+                labels = (name, position["symbol"], position["side"])
+                for level in ("entry", "mark", "stop", "target", "liquidation"):
+                    POSITION_PRICE.labels(*labels, level).set(position[level])
+                UNREALIZED.labels(*labels).set(position["unrealized_pnl"])
         LAST.set(time.time()); state.update(healthy=True, error=None)
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)
