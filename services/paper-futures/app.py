@@ -19,6 +19,12 @@ POSITIONS = Gauge("paper_futures_positions", "Paper futures open positions", ["s
 LIQUIDATIONS = Gauge("paper_futures_liquidations_total", "Paper futures simulated liquidations", ["strategy"])
 POSITION_PRICE = Gauge("paper_futures_position_price", "Paper futures position price levels", ["strategy", "symbol", "side", "level"])
 UNREALIZED = Gauge("paper_futures_unrealized_pnl", "Paper futures position unrealized PnL", ["strategy", "symbol", "side"])
+SIGNAL_INFO = Gauge("paper_futures_latest_signal_info", "Latest paper futures strategy decision", ["strategy", "symbol", "direction", "decision", "reason"])
+RISK_INFO = Gauge("paper_futures_latest_risk_info", "Latest paper futures risk decision", ["strategy", "symbol", "direction", "decision", "reason"])
+FILL_INFO = Gauge("paper_futures_latest_fill_info", "Latest paper futures fill metadata", ["strategy", "symbol", "action", "side", "reason"])
+FILL_VALUE = Gauge("paper_futures_latest_fill_value", "Latest paper futures fill values", ["strategy", "symbol", "action", "side", "field"])
+POSITION_INFO = Gauge("paper_futures_position_info", "Currently open paper futures positions", ["strategy", "symbol", "side"])
+SUMMARY = Gauge("paper_futures_strategy_summary", "Paper futures cumulative strategy summary", ["strategy", "metric"])
 ERRORS = Counter("paper_futures_errors_total", "Paper futures cycle errors", ["type"])
 state = {"healthy": False, "error": None}
 
@@ -43,7 +49,8 @@ engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.g
 def execute():
     try:
         result = engine.run_once()
-        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear()
+        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
+        FILL_INFO.clear(); FILL_VALUE.clear(); POSITION_INFO.clear(); SUMMARY.clear()
         for account in result["accounts"]:
             name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); EXPOSURE.labels(name).set(account["gross_notional"])
             DRAWDOWN.labels(name).set(account["drawdown"]); LIQUIDATIONS.labels(name).set(account["summary"]["liquidations"])
@@ -51,9 +58,31 @@ def execute():
                 POSITIONS.labels(name, side).set(sum(1 for x in account["positions"] if x["side"] == side))
             for position in account["positions"]:
                 labels = (name, position["symbol"], position["side"])
+                POSITION_INFO.labels(*labels).set(1)
                 for level in ("entry", "mark", "stop", "target", "liquidation"):
                     POSITION_PRICE.labels(*labels, level).set(position[level])
                 UNREALIZED.labels(*labels).set(position["unrealized_pnl"])
+            for metric in ("signals", "fills", "closed", "wins", "fees", "realized", "liquidations", "win_rate"):
+                SUMMARY.labels(name, metric).set(account["summary"][metric])
+        latest_signals = {}
+        latest_risk = {}
+        for item in result["recentSignals"]:
+            key = (item["strategy"], item["symbol"])
+            latest_signals.setdefault(key, item)
+            if item["decision"] in {"ALLOWED", "REJECTED"}:
+                latest_risk.setdefault(key, item)
+        for item in latest_signals.values():
+            SIGNAL_INFO.labels(item["strategy"], item["symbol"], item["direction"], item["decision"], item["reason"]).set(1)
+        for item in latest_risk.values():
+            RISK_INFO.labels(item["strategy"], item["symbol"], item["direction"], item["decision"], item["reason"]).set(1)
+        latest_fills = {}
+        for item in result["recentFills"]:
+            latest_fills.setdefault((item["strategy"], item["symbol"]), item)
+        for item in latest_fills.values():
+            labels = (item["strategy"], item["symbol"], item["action"], item["side"])
+            FILL_INFO.labels(*labels, item["reason"]).set(1)
+            for field in ("price", "notional", "fee", "pnl"):
+                FILL_VALUE.labels(*labels, field).set(item[field])
         LAST.set(time.time()); state.update(healthy=True, error=None)
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)
