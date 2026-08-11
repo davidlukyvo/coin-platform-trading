@@ -21,8 +21,8 @@ services:
         chmod 2750 /host/paper-ui
         chown -R 10006:10006 /host/hybrid-signals
         chmod 700 /host/hybrid-signals
-        chown -R 10007:10007 /host/wyckoff-signals
-        chmod 700 /host/wyckoff-signals
+        chown -R 10007:10009 /host/wyckoff-signals
+        chmod 2750 /host/wyckoff-signals
         chown -R 10009:10009 /host/paper-futures
         chmod 700 /host/paper-futures
         test -w /host/bronze
