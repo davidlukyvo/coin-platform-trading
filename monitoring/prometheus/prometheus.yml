@@ -24,6 +24,9 @@ scrape_configs:
   - job_name: paper-trading
     static_configs:
       - targets: ["paper-trading:8050"]
+  - job_name: paper-futures
+    static_configs:
+      - targets: ["paper-futures:8090"]
   - job_name: silver-processor
     static_configs:
       - targets: ["silver-processor:8010"]

@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -23,6 +23,8 @@ services:
         chmod 700 /host/hybrid-signals
         chown -R 10007:10007 /host/wyckoff-signals
         chmod 700 /host/wyckoff-signals
+        chown -R 10009:10009 /host/paper-futures
+        chmod 700 /host/paper-futures
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -237,6 +239,61 @@ services:
       options: {max-size: "10m", max-file: "3"}
     networks:
       - paper-control
+
+  paper-futures:
+    build:
+      context: ./services/paper-futures
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+      wyckoff-shadow-adapter:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      WYCKOFF_ROOT: /data/wyckoff
+      FUTURES_DATA_ROOT: /data/paper-futures
+      FUTURES_DATA_EXCHANGE: ${FUTURES_DATA_EXCHANGE:-binance}
+      FUTURES_SYMBOLS: ${FUTURES_SYMBOLS:-BTCUSDT,ETHUSDT}
+      FUTURES_INTERVAL_SECONDS: ${FUTURES_INTERVAL_SECONDS:-60}
+      FUTURES_LEVERAGE: "10"
+      FUTURES_STARTING_EQUITY: ${FUTURES_STARTING_EQUITY:-10000}
+      FUTURES_MARGIN_PER_TRADE: ${FUTURES_MARGIN_PER_TRADE:-100}
+      FUTURES_FEE_BPS: ${FUTURES_FEE_BPS:-5}
+      FUTURES_SLIPPAGE_BPS: ${FUTURES_SLIPPAGE_BPS:-2}
+      FUTURES_MAINTENANCE_MARGIN: ${FUTURES_MAINTENANCE_MARGIN:-0.005}
+      FUTURES_EMA_STOP_FRACTION: ${FUTURES_EMA_STOP_FRACTION:-0.01}
+      FUTURES_EMA_TARGET_FRACTION: ${FUTURES_EMA_TARGET_FRACTION:-0.02}
+      FUTURES_MAX_GROSS_NOTIONAL: ${FUTURES_MAX_GROSS_NOTIONAL:-2000}
+      FUTURES_MAX_DAILY_LOSS: ${FUTURES_MAX_DAILY_LOSS:-100}
+      FUTURES_MAX_DRAWDOWN_FRACTION: ${FUTURES_MAX_DRAWDOWN_FRACTION:-0.05}
+      FUTURES_MAX_TRADES_PER_DAY: ${FUTURES_MAX_TRADES_PER_DAY:-30}
+      FUTURES_MAX_MARKET_AGE_SECONDS: ${FUTURES_MAX_MARKET_AGE_SECONDS:-3900}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-signals:/data/wyckoff:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper-futures:/data/paper-futures
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
 
   hybrid-signal-adapter:
     build:

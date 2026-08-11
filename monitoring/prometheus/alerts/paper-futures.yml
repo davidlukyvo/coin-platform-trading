@@ -1,0 +1,26 @@
+groups:
+  - name: paper-futures
+    rules:
+      - alert: PaperFuturesDown
+        expr: up{job="paper-futures"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Paper Futures x10 simulator is unavailable"}
+      - alert: PaperFuturesStale
+        expr: time() - paper_futures_last_success_unixtime > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Paper Futures x10 cycle is stale"}
+      - alert: PaperFuturesErrors
+        expr: increase(paper_futures_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Paper Futures x10 cycle errors increased"}
+      - alert: PaperFuturesDrawdownLimit
+        expr: paper_futures_drawdown >= 0.05
+        for: 1m
+        labels: {severity: warning}
+        annotations: {summary: "Paper Futures strategy reached drawdown limit"}
+      - alert: PaperFuturesLiquidation
+        expr: increase(paper_futures_liquidations_total[15m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Paper Futures recorded a simulated liquidation"}
