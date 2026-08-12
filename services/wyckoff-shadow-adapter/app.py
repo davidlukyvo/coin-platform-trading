@@ -15,6 +15,13 @@ LAST = Gauge("wyckoff_adapter_last_success_unixtime", "Last successful Wyckoff s
 SIGNALS = Gauge("wyckoff_adapter_signals", "Current Wyckoff shadow signals", ["symbol", "decision", "event"])
 SCORE = Gauge("wyckoff_adapter_score", "Current Wyckoff shadow score", ["symbol"])
 JOURNAL = Gauge("wyckoff_adapter_journal_rows", "Exactly-once Wyckoff signal journal rows")
+RESEARCH_JOURNAL = Gauge("wyckoff_research_journal_rows", "Exactly-once Wyckoff VSA research observations")
+PHASE = Gauge("wyckoff_market_phase_info", "Current quantified Wyckoff market phase", ["symbol", "phase", "explanation"])
+PHASE_SCORE = Gauge("wyckoff_market_phase_confidence", "Rule confidence for current Wyckoff phase", ["symbol"])
+INTENT = Gauge("wyckoff_composite_operator_intent_info", "Rule-based composite operator intent", ["symbol", "intent"])
+VSA = Gauge("wyckoff_vsa_event_info", "Confirmed VSA events on latest closed candle", ["symbol", "event", "direction", "status", "explanation"])
+VSA_SCORE = Gauge("wyckoff_vsa_event_score", "Rule score for confirmed VSA events", ["symbol", "event"])
+FEATURE = Gauge("wyckoff_market_feature", "Bounded market-structure features", ["symbol", "feature"])
 ERRORS = Counter("wyckoff_adapter_errors_total", "Wyckoff adapter cycle errors", ["type"])
 state = {"healthy": False, "error": None, "last_success": 0.0}
 thresholds = Thresholds(
@@ -32,11 +39,19 @@ adapter = WyckoffShadowAdapter(
 def execute():
     try:
         result = adapter.run_once()
-        SIGNALS.clear()
+        SIGNALS.clear(); PHASE.clear(); PHASE_SCORE.clear(); INTENT.clear(); VSA.clear(); VSA_SCORE.clear(); FEATURE.clear()
         for signal in result["signals"]:
             SIGNALS.labels(signal["symbol"], signal["authorityDecision"], signal["eventCandidate"]).set(1)
             SCORE.labels(signal["symbol"]).set(signal["score"])
-        JOURNAL.set(result["journalRows"]); LAST.set(time.time())
+            PHASE.labels(signal["symbol"], signal["phaseCandidate"], signal["phaseExplanation"]).set(1)
+            PHASE_SCORE.labels(signal["symbol"]).set(signal["phaseConfidence"])
+            INTENT.labels(signal["symbol"], signal["compositeOperatorIntent"]).set(1)
+            for event in signal["vsaEvents"]:
+                VSA.labels(signal["symbol"], event["event"], event["direction"], event["status"], event["explanation"]).set(1)
+                VSA_SCORE.labels(signal["symbol"], event["event"]).set(event["score"])
+            for feature in ("relativeVolume15m", "spreadRatio15m", "closeLocation15m", "rangePosition", "rangeWidthATR"):
+                FEATURE.labels(signal["symbol"], feature).set(signal["features"][feature])
+        JOURNAL.set(result["journalRows"]); RESEARCH_JOURNAL.set(result["researchJournalRows"]); LAST.set(time.time())
         state.update(healthy=True, error=None, last_success=time.time())
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)

@@ -2,7 +2,8 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from engine import SignalJournal, Thresholds, evaluate, raw_event, resample_closed
+from engine import (SignalJournal, Thresholds, classify_market_phase, detect_vsa_events,
+                    evaluate, raw_event, resample_closed)
 
 
 def minute_frame(periods=5000, start="2026-08-01T00:00:00Z"):
@@ -42,6 +43,24 @@ def test_detects_spring_and_upthrust():
     assert raw_event(rows, 20, Thresholds()) == "UPTHRUST"
 
 
+def test_vsa_no_demand_is_quantified_and_explained():
+    rows = pd.DataFrame({"open": [100.0] * 22, "high": [101.0] * 22, "low": [99.0] * 22,
+                         "close": [100.0] * 22, "volume": [10.0] * 22})
+    rows.loc[21, ["open", "high", "low", "close", "volume"]] = [100.0, 100.3, 99.9, 100.1, 5.0]
+    events = detect_vsa_events(rows, Thresholds())
+    assert events[0]["event"] == "NO_DEMAND"
+    assert events[0]["direction"] == "BEARISH"
+    assert 0 <= events[0]["score"] <= 100
+    assert events[0]["explanation"]
+
+
+def test_four_primary_market_phases_are_explicit():
+    assert classify_market_phase(.8, 111, 90, 110, "BULLISH", 1, set())[0] == "MARKUP"
+    assert classify_market_phase(.2, 89, 90, 110, "BEARISH", -1, set())[0] == "MARKDOWN"
+    assert classify_market_phase(.4, 98, 90, 110, "BEARISH", 0, {"NO_SUPPLY"})[0] == "ACCUMULATION"
+    assert classify_market_phase(.7, 104, 90, 110, "BULLISH", 0, {"UPTHRUST"})[0] == "DISTRIBUTION"
+
+
 def test_signal_is_shadow_only_and_stale_data_rejects():
     frame = minute_frame()
     now = datetime(2026, 8, 10, tzinfo=UTC).timestamp()
@@ -50,6 +69,8 @@ def test_signal_is_shadow_only_and_stale_data_rejects():
     assert signal["liveTrading"] is False
     assert signal["executionActionable"] is False
     assert signal["executionGatePassed"] is False
+    assert signal["phaseCandidate"] in {"ACCUMULATION", "MARKUP", "DISTRIBUTION", "MARKDOWN"}
+    assert signal["strategy"] == "wyckoff_vsa_research_v1"
     assert signal["authorityDecision"] == "REJECT"
     assert signal["authorityReason"] == "stale_market_data"
 
@@ -60,6 +81,7 @@ def test_journal_is_exactly_once(tmp_path):
     assert journal.record(signal) is True
     assert journal.record(signal) is False
     assert journal.count() == 1
+    assert journal.research_count() == 1
     flags = journal.connection.execute(
         "SELECT execution_actionable, execution_gate_passed FROM signals"
     ).fetchone()

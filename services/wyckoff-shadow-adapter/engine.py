@@ -24,6 +24,10 @@ class Thresholds:
     test_volume_ceiling: float = 1.0
     min_rr: float = 2.0
     ready_score: int = 70
+    high_volume_ratio: float = 1.5
+    low_volume_ratio: float = 0.75
+    wide_spread_ratio: float = 1.35
+    narrow_spread_ratio: float = 0.75
 
 
 def load_closed_minutes(root: Path, exchange: str, symbol: str, limit: int = 6500) -> pd.DataFrame:
@@ -67,6 +71,69 @@ def relative_volume(frame: pd.DataFrame, index: int, period: int = 20) -> float:
     start = max(0, index - period)
     average = float(frame["volume"].iloc[start:index].mean())
     return 0.0 if not math.isfinite(average) or average <= 0 else float(frame["volume"].iloc[index] / average)
+
+
+def candle_features(frame: pd.DataFrame, index: int, period: int = 20) -> dict:
+    row = frame.iloc[index]
+    spread = max(float(row["high"] - row["low"]), 1e-12)
+    prior_spreads = (frame["high"] - frame["low"]).iloc[max(0, index - period):index]
+    median_spread = float(prior_spreads.median())
+    spread_ratio = 0.0 if not math.isfinite(median_spread) or median_spread <= 0 else spread / median_spread
+    close_location = float((row["close"] - row["low"]) / spread)
+    return {
+        "relativeVolume": relative_volume(frame, index, period), "spreadRatio": spread_ratio,
+        "closeLocation": max(0.0, min(1.0, close_location)),
+        "isUpBar": bool(row["close"] > row["open"]), "isDownBar": bool(row["close"] < row["open"]),
+    }
+
+
+def detect_vsa_events(frame: pd.DataFrame, limits: Thresholds) -> list[dict]:
+    """Return deterministic, explainable VSA observations for the latest closed bar."""
+    index = len(frame) - 1
+    if index < max(limits.range_bars, 2):
+        return []
+    current, previous = candle_features(frame, index), candle_features(frame, index - 1)
+    row, prior_row = frame.iloc[index], frame.iloc[index - 1]
+    prior = frame.iloc[index - limits.range_bars:index]
+    range_high, range_low = float(prior["high"].max()), float(prior["low"].min())
+    events: list[dict] = []
+
+    def add(name: str, direction: str, score: float, explanation: str):
+        events.append({"event": name, "direction": direction, "score": int(round(max(0, min(100, score)))),
+                       "status": "CONFIRMED", "explanation": explanation})
+
+    rv, sr, cl = current["relativeVolume"], current["spreadRatio"], current["closeLocation"]
+    if current["isUpBar"] and rv <= limits.low_volume_ratio and sr <= limits.narrow_spread_ratio and cl < 0.7:
+        add("NO_DEMAND", "BEARISH", 55 + 20 * (limits.low_volume_ratio - rv), "Up bar on narrow spread and low relative volume")
+    if current["isDownBar"] and rv <= limits.low_volume_ratio and sr <= limits.narrow_spread_ratio and cl > 0.3:
+        add("NO_SUPPLY", "BULLISH", 55 + 20 * (limits.low_volume_ratio - rv), "Down bar on narrow spread and low relative volume")
+    if rv >= limits.high_volume_ratio and sr >= limits.wide_spread_ratio and cl >= 0.65:
+        add("SIGN_OF_STRENGTH", "BULLISH", 60 + 15 * min(rv - 1, 2), "Wide spread closes high on elevated volume")
+    if rv >= limits.high_volume_ratio and sr >= limits.wide_spread_ratio and cl <= 0.35:
+        add("SIGN_OF_WEAKNESS", "BEARISH", 60 + 15 * min(rv - 1, 2), "Wide spread closes low on elevated volume")
+    if rv >= limits.high_volume_ratio and cl >= 0.55 and row["low"] <= prior["low"].quantile(0.15):
+        add("STOPPING_VOLUME", "BULLISH", 60 + 15 * min(rv - 1, 2), "High volume rejection near the lower trading-range boundary")
+    if row["low"] < range_low and row["close"] > range_low and cl >= 0.55:
+        add("SHAKEOUT", "BULLISH", 65 + 10 * min(rv, 2), "Price breaks below range support and closes back inside")
+    if row["high"] > range_high and row["close"] < range_high and cl <= 0.45:
+        add("UPTHRUST", "BEARISH", 65 + 10 * min(rv, 2), "Price breaks above range resistance and closes back inside")
+    if (previous["relativeVolume"] >= limits.high_volume_ratio and rv <= limits.low_volume_ratio
+            and row["low"] > prior_row["low"] and cl >= 0.5):
+        add("TEST", "BULLISH", 65 + 15 * (limits.low_volume_ratio - rv), "Low-volume retest holds above the prior high-volume low")
+    return sorted(events, key=lambda item: (-item["score"], item["event"]))
+
+
+def classify_market_phase(range_position: float, close: float, range_low: float, range_high: float,
+                          hourly_context: str, ema_slope: float, event_names: set[str]) -> tuple[str, int, str]:
+    if close > range_high or (hourly_context == "BULLISH" and ema_slope > 0 and range_position >= 0.65):
+        return "MARKUP", 78 if close > range_high else 68, "Price is above/near range resistance with bullish higher-timeframe structure"
+    if close < range_low or (hourly_context == "BEARISH" and ema_slope < 0 and range_position <= 0.35):
+        return "MARKDOWN", 78 if close < range_low else 68, "Price is below/near range support with bearish higher-timeframe structure"
+    bullish = bool(event_names & {"NO_SUPPLY", "STOPPING_VOLUME", "TEST", "SHAKEOUT", "SIGN_OF_STRENGTH"})
+    bearish = bool(event_names & {"NO_DEMAND", "UPTHRUST", "SIGN_OF_WEAKNESS"})
+    if range_position <= 0.55 or bullish:
+        return "ACCUMULATION", 65 if bullish else 52, "Price is inside the lower range with accumulation evidence" if bullish else "Price is rotating in the lower half of the trading range"
+    return "DISTRIBUTION", 65 if bearish else 52, "Price is inside the upper range with distribution evidence" if bearish else "Price is rotating in the upper half of the trading range"
 
 
 def raw_event(frame: pd.DataFrame, index: int, limits: Thresholds) -> str:
@@ -128,6 +195,11 @@ def evaluate(minutes: pd.DataFrame, exchange: str, symbol: str, limits: Threshol
     ema20 = bars_1h["close"].ewm(span=20, adjust=False).mean()
     ema50 = bars_1h["close"].ewm(span=50, adjust=False).mean()
     hourly_context = "BULLISH" if ema20.iloc[-1] > ema50.iloc[-1] else "BEARISH"
+    ema_slope = float(ema20.iloc[-1] - ema20.iloc[-4])
+    vsa_events = detect_vsa_events(bars_15m, thresholds)
+    event_names = {item["event"] for item in vsa_events}
+    phase, phase_score, phase_explanation = classify_market_phase(
+        range_position, float(current_15m["close"]), range_low, range_high, hourly_context, ema_slope, event_names)
     bullish_events = {"SPRING", "TEST_AFTER_SPRING", "SOS"}
     bearish_events = {"UPTHRUST", "TEST_AFTER_UPTHRUST", "SOW"}
     direction = "LONG" if event in bullish_events else "SHORT" if event in bearish_events else "NONE"
@@ -165,19 +237,31 @@ def evaluate(minutes: pd.DataFrame, exchange: str, symbol: str, limits: Threshol
     else:
         decision, status, reason = "WAIT", "WATCH", blockers[0] if blockers else "score_below_ready"
     bar_id = pd.Timestamp(current_5m["open_time"]).isoformat()
-    signal_id = hashlib.sha256(f"wyckoff_shadow_v1:{exchange}:{symbol}:{bar_id}".encode()).hexdigest()
-    phase = "ACCUMULATION_CANDIDATE" if range_position <= 0.5 else "DISTRIBUTION_CANDIDATE"
+    signal_id = hashlib.sha256(f"wyckoff_vsa_research_v1:{exchange}:{symbol}:{bar_id}".encode()).hexdigest()
+    bullish_vsa = sum(item["score"] for item in vsa_events if item["direction"] == "BULLISH")
+    bearish_vsa = sum(item["score"] for item in vsa_events if item["direction"] == "BEARISH")
+    if bullish_vsa > bearish_vsa: composite_intent = "ACCUMULATING_OR_MARKING_UP"
+    elif bearish_vsa > bullish_vsa: composite_intent = "DISTRIBUTING_OR_MARKING_DOWN"
+    else: composite_intent = "NEUTRAL_OR_UNCONFIRMED"
+    market_story = f"{phase}: {phase_explanation}. " + (
+        f"Primary VSA evidence is {vsa_events[0]['event']} ({vsa_events[0]['score']}/100)."
+        if vsa_events else "No confirmed VSA event on the latest closed 15m candle.")
     features = {
         "rangeHigh": range_high, "rangeLow": range_low, "rangePosition": range_position,
         "rangeWidthATR": width_atr, "atr15m": atr15, "relativeVolume15m": rel_volume,
         "hourlyEMA20": float(ema20.iloc[-1]), "hourlyEMA50": float(ema50.iloc[-1]),
-        "hourlyContext": hourly_context, "triggerConfirmed": trigger, "contextAligned": context_aligned,
+        "hourlyContext": hourly_context, "hourlyEMA20Slope": ema_slope,
+        "triggerConfirmed": trigger, "contextAligned": context_aligned,
+        "spreadRatio15m": candle_features(bars_15m, index)["spreadRatio"],
+        "closeLocation15m": candle_features(bars_15m, index)["closeLocation"],
     }
     return {
-        "signalId": signal_id, "strategy": "wyckoff_shadow_v1", "mode": "SHADOW_ONLY", "liveTrading": False,
+        "signalId": signal_id, "strategy": "wyckoff_vsa_research_v1", "mode": "SHADOW_ONLY", "liveTrading": False,
         "exchange": exchange, "symbol": symbol, "timeframe": "5m/15m/1h", "barId": bar_id,
         "marketTime": datetime.fromtimestamp(market_time, UTC).isoformat(), "marketAgeSeconds": market_age,
-        "phaseCandidate": phase, "eventCandidate": event, "direction": direction, "score": score,
+        "phaseCandidate": phase, "phaseConfidence": phase_score, "phaseExplanation": phase_explanation,
+        "eventCandidate": event, "vsaEvents": vsa_events, "compositeOperatorIntent": composite_intent,
+        "marketStory": market_story, "direction": direction, "score": score,
         "entry": entry, "stop": stop, "target": target, "rr": rr, "features": features,
         "finalAuthorityStatus": status, "authorityDecision": decision, "authorityReason": reason,
         "authorityTrace": {"blockers": blockers, "thresholds": asdict(thresholds)},
@@ -199,6 +283,14 @@ class SignalJournal:
             entry REAL NOT NULL, stop REAL NOT NULL, target REAL NOT NULL, rr REAL NOT NULL,
             execution_actionable INTEGER NOT NULL CHECK(execution_actionable=0),
             execution_gate_passed INTEGER NOT NULL CHECK(execution_gate_passed=0), features_json TEXT NOT NULL)""")
+        self.connection.execute("""CREATE TABLE IF NOT EXISTS research_observations(
+            signal_id TEXT PRIMARY KEY, observed_at REAL NOT NULL, market_time TEXT NOT NULL,
+            exchange_name TEXT NOT NULL, symbol TEXT NOT NULL, strategy_version TEXT NOT NULL,
+            bar_id TEXT NOT NULL, phase TEXT NOT NULL, phase_confidence INTEGER NOT NULL,
+            composite_intent TEXT NOT NULL, vsa_events_json TEXT NOT NULL, market_story TEXT NOT NULL,
+            decision TEXT NOT NULL, reason TEXT NOT NULL,
+            execution_actionable INTEGER NOT NULL CHECK(execution_actionable=0),
+            execution_gate_passed INTEGER NOT NULL CHECK(execution_gate_passed=0), features_json TEXT NOT NULL)""")
         self.connection.commit()
 
     def record(self, signal: dict) -> bool:
@@ -210,10 +302,20 @@ class SignalJournal:
                  signal["direction"], signal["score"], signal["authorityDecision"], signal["authorityReason"],
                  signal["entry"], signal["stop"], signal["target"], signal["rr"], 0, 0,
                  json.dumps(signal["features"], separators=(",", ":"))))
+            self.connection.execute(
+                """INSERT OR IGNORE INTO research_observations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (signal["signalId"], time.time(), signal["marketTime"], signal["exchange"], signal["symbol"],
+                 signal["strategy"], signal["barId"], signal["phaseCandidate"], signal["phaseConfidence"],
+                 signal["compositeOperatorIntent"], json.dumps(signal["vsaEvents"], separators=(",", ":")),
+                 signal["marketStory"], signal["authorityDecision"], signal["authorityReason"], 0, 0,
+                 json.dumps(signal["features"], separators=(",", ":"))))
         return cursor.rowcount == 1
 
     def count(self) -> int:
         return int(self.connection.execute("SELECT count(*) FROM signals").fetchone()[0])
+
+    def research_count(self) -> int:
+        return int(self.connection.execute("SELECT count(*) FROM research_observations").fetchone()[0])
 
 
 class WyckoffShadowAdapter:
@@ -229,9 +331,10 @@ class WyckoffShadowAdapter:
             signals.append(signal)
             inserted += int(self.journal.record(signal))
         state = {
-            "mode": "SHADOW_ONLY", "liveTrading": False, "adapterVersion": "wyckoff_shadow_v1",
+            "mode": "SHADOW_ONLY", "liveTrading": False, "executionActionable": False,
+            "executionGatePassed": False, "adapterVersion": "wyckoff_vsa_research_v1",
             "updatedAt": datetime.now(UTC).isoformat(), "journalRows": self.journal.count(),
-            "newSignals": inserted, "signals": signals,
+            "researchJournalRows": self.journal.research_count(), "newSignals": inserted, "signals": signals,
         }
         self.output_root.mkdir(parents=True, exist_ok=True)
         temporary = self.output_root / "latest-signals.json.tmp"

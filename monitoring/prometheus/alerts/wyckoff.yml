@@ -18,3 +18,15 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: Wyckoff shadow adapter reported evaluation errors
+      - alert: WyckoffMarketPhaseMissing
+        expr: absent(wyckoff_market_phase_info)
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff VSA research projection has no market phase
+      - alert: WyckoffResearchJournalStalled
+        expr: changes(wyckoff_research_journal_rows[20m]) == 0 and up{job="wyckoff-shadow-adapter"} == 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff VSA exactly-once research journal is not advancing
