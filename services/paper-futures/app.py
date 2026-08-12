@@ -24,6 +24,7 @@ RISK_INFO = Gauge("paper_futures_latest_risk_info", "Latest paper futures risk d
 FILL_INFO = Gauge("paper_futures_latest_fill_info", "Latest paper futures fill metadata", ["strategy", "symbol", "action", "side", "reason"])
 FILL_VALUE = Gauge("paper_futures_latest_fill_value", "Latest paper futures fill values", ["strategy", "symbol", "action", "side", "field"])
 POSITION_INFO = Gauge("paper_futures_position_info", "Currently open paper futures positions", ["strategy", "symbol", "side"])
+POSITION_PROGRESS = Gauge("paper_futures_position_progress_percent", "Distance and return metrics for open paper futures positions", ["strategy", "symbol", "side", "metric"])
 SUMMARY = Gauge("paper_futures_strategy_summary", "Paper futures cumulative strategy summary", ["strategy", "metric"])
 ERRORS = Counter("paper_futures_errors_total", "Paper futures cycle errors", ["type"])
 state = {"healthy": False, "error": None}
@@ -50,7 +51,7 @@ def execute():
     try:
         result = engine.run_once()
         POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
-        FILL_INFO.clear(); FILL_VALUE.clear(); POSITION_INFO.clear(); SUMMARY.clear()
+        FILL_INFO.clear(); FILL_VALUE.clear(); POSITION_INFO.clear(); POSITION_PROGRESS.clear(); SUMMARY.clear()
         for account in result["accounts"]:
             name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); EXPOSURE.labels(name).set(account["gross_notional"])
             DRAWDOWN.labels(name).set(account["drawdown"]); LIQUIDATIONS.labels(name).set(account["summary"]["liquidations"])
@@ -62,6 +63,15 @@ def execute():
                 for level in ("entry", "mark", "stop", "target", "liquidation"):
                     POSITION_PRICE.labels(*labels, level).set(position[level])
                 UNREALIZED.labels(*labels).set(position["unrealized_pnl"])
+                entry, mark = float(position["entry"]), float(position["mark"])
+                direction = 1.0 if position["side"] == "LONG" else -1.0
+                roe = direction * (mark - entry) / entry * config.leverage * 100
+                stop_distance = direction * (mark - float(position["stop"])) / mark * 100
+                target_distance = direction * (float(position["target"]) - mark) / mark * 100
+                liquidation_distance = direction * (mark - float(position["liquidation"])) / mark * 100
+                for metric, value in (("roe", roe), ("to_stop", stop_distance),
+                                      ("to_target", target_distance), ("to_liquidation", liquidation_distance)):
+                    POSITION_PROGRESS.labels(*labels, metric).set(value)
             for metric in ("signals", "fills", "closed", "wins", "fees", "realized", "liquidations", "win_rate"):
                 SUMMARY.labels(name, metric).set(account["summary"][metric])
         latest_signals = {}
