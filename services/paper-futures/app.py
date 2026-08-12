@@ -13,7 +13,9 @@ from engine import FuturesConfig, FuturesEngine
 os.umask(0o077)
 LAST = Gauge("paper_futures_last_success_unixtime", "Last successful x10 futures paper cycle")
 EQUITY = Gauge("paper_futures_equity", "Paper futures equity", ["strategy"])
+CASH = Gauge("paper_futures_cash", "Paper futures available virtual cash", ["strategy"])
 EXPOSURE = Gauge("paper_futures_gross_notional", "Paper futures gross notional", ["strategy"])
+RISK_USAGE = Gauge("paper_futures_risk_utilization_fraction", "Gross notional divided by configured maximum", ["strategy"])
 DRAWDOWN = Gauge("paper_futures_drawdown", "Paper futures drawdown", ["strategy"])
 POSITIONS = Gauge("paper_futures_positions", "Paper futures open positions", ["strategy", "side"])
 LIQUIDATIONS = Gauge("paper_futures_liquidations_total", "Paper futures simulated liquidations", ["strategy"])
@@ -25,6 +27,7 @@ FILL_INFO = Gauge("paper_futures_latest_fill_info", "Latest paper futures fill m
 FILL_VALUE = Gauge("paper_futures_latest_fill_value", "Latest paper futures fill values", ["strategy", "symbol", "action", "side", "field"])
 POSITION_INFO = Gauge("paper_futures_position_info", "Currently open paper futures positions", ["strategy", "symbol", "side"])
 POSITION_PROGRESS = Gauge("paper_futures_position_progress_percent", "Distance and return metrics for open paper futures positions", ["strategy", "symbol", "side", "metric"])
+POSITION_DETAIL = Gauge("paper_futures_position_detail", "Position margin, notional and risk reward", ["strategy", "symbol", "side", "metric"])
 SUMMARY = Gauge("paper_futures_strategy_summary", "Paper futures cumulative strategy summary", ["strategy", "metric"])
 ERRORS = Counter("paper_futures_errors_total", "Paper futures cycle errors", ["type"])
 state = {"healthy": False, "error": None}
@@ -50,10 +53,12 @@ engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.g
 def execute():
     try:
         result = engine.run_once()
-        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
+        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); POSITION_DETAIL.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
         FILL_INFO.clear(); FILL_VALUE.clear(); POSITION_INFO.clear(); POSITION_PROGRESS.clear(); SUMMARY.clear()
         for account in result["accounts"]:
-            name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); EXPOSURE.labels(name).set(account["gross_notional"])
+            name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); CASH.labels(name).set(account["cash"])
+            EXPOSURE.labels(name).set(account["gross_notional"])
+            RISK_USAGE.labels(name).set(account["gross_notional"] / config.max_gross_notional)
             DRAWDOWN.labels(name).set(account["drawdown"]); LIQUIDATIONS.labels(name).set(account["summary"]["liquidations"])
             for side in ("LONG", "SHORT"):
                 POSITIONS.labels(name, side).set(sum(1 for x in account["positions"] if x["side"] == side))
@@ -72,6 +77,11 @@ def execute():
                 for metric, value in (("roe", roe), ("to_stop", stop_distance),
                                       ("to_target", target_distance), ("to_liquidation", liquidation_distance)):
                     POSITION_PROGRESS.labels(*labels, metric).set(value)
+                risk = abs(entry - float(position["stop"])); reward = abs(float(position["target"]) - entry)
+                notional = float(position["quantity"]) * mark
+                for metric, value in (("margin", float(position["margin"])), ("notional", notional),
+                                      ("risk_reward", reward / risk if risk else 0.0)):
+                    POSITION_DETAIL.labels(*labels, metric).set(value)
             for metric in ("signals", "fills", "closed", "wins", "fees", "realized", "liquidations", "win_rate"):
                 SUMMARY.labels(name, metric).set(account["summary"][metric])
         latest_signals = {}
