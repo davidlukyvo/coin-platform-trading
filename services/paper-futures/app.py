@@ -16,6 +16,7 @@ EQUITY = Gauge("paper_futures_equity", "Paper futures equity", ["strategy"])
 CASH = Gauge("paper_futures_cash", "Paper futures available virtual cash", ["strategy"])
 EXPOSURE = Gauge("paper_futures_gross_notional", "Paper futures gross notional", ["strategy"])
 RISK_USAGE = Gauge("paper_futures_risk_utilization_fraction", "Gross notional divided by configured maximum", ["strategy"])
+CAPITAL = Gauge("paper_futures_capital", "Paper futures capital and planned outcome values", ["strategy", "metric"])
 DRAWDOWN = Gauge("paper_futures_drawdown", "Paper futures drawdown", ["strategy"])
 POSITIONS = Gauge("paper_futures_positions", "Paper futures open positions", ["strategy", "side"])
 LIQUIDATIONS = Gauge("paper_futures_liquidations_total", "Paper futures simulated liquidations", ["strategy"])
@@ -25,10 +26,12 @@ SIGNAL_INFO = Gauge("paper_futures_latest_signal_info", "Latest paper futures st
 RISK_INFO = Gauge("paper_futures_latest_risk_info", "Latest paper futures risk decision", ["strategy", "symbol", "direction", "decision", "reason"])
 FILL_INFO = Gauge("paper_futures_latest_fill_info", "Latest paper futures fill metadata", ["strategy", "symbol", "action", "side", "reason"])
 FILL_VALUE = Gauge("paper_futures_latest_fill_value", "Latest paper futures fill values", ["strategy", "symbol", "action", "side", "field"])
-POSITION_INFO = Gauge("paper_futures_position_info", "Currently open paper futures positions", ["strategy", "symbol", "side"])
+POSITION_INFO = Gauge("paper_futures_position_info", "Currently open paper futures positions", ["strategy", "symbol", "side", "status"])
 POSITION_PROGRESS = Gauge("paper_futures_position_progress_percent", "Distance and return metrics for open paper futures positions", ["strategy", "symbol", "side", "metric"])
 POSITION_DETAIL = Gauge("paper_futures_position_detail", "Position margin, notional and risk reward", ["strategy", "symbol", "side", "metric"])
 SUMMARY = Gauge("paper_futures_strategy_summary", "Paper futures cumulative strategy summary", ["strategy", "metric"])
+CLOSED_INFO = Gauge("paper_futures_closed_trade_info", "Recent closed paper futures trades", ["trade_id", "closed_at", "strategy", "symbol", "side", "exit_reason"])
+CLOSED_VALUE = Gauge("paper_futures_closed_trade_value", "Recent closed paper futures trade values", ["trade_id", "symbol", "side", "field"])
 ERRORS = Counter("paper_futures_errors_total", "Paper futures cycle errors", ["type"])
 state = {"healthy": False, "error": None}
 
@@ -53,18 +56,34 @@ engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.g
 def execute():
     try:
         result = engine.run_once()
-        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); POSITION_DETAIL.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
+        POSITIONS.clear(); POSITION_PRICE.clear(); UNREALIZED.clear(); POSITION_DETAIL.clear(); CAPITAL.clear(); SIGNAL_INFO.clear(); RISK_INFO.clear()
         FILL_INFO.clear(); FILL_VALUE.clear(); POSITION_INFO.clear(); POSITION_PROGRESS.clear(); SUMMARY.clear()
+        CLOSED_INFO.clear(); CLOSED_VALUE.clear()
         for account in result["accounts"]:
             name = account["strategy"]; EQUITY.labels(name).set(account["equity"]); CASH.labels(name).set(account["cash"])
             EXPOSURE.labels(name).set(account["gross_notional"])
             RISK_USAGE.labels(name).set(account["gross_notional"] / config.max_gross_notional)
             DRAWDOWN.labels(name).set(account["drawdown"]); LIQUIDATIONS.labels(name).set(account["summary"]["liquidations"])
+            used_margin = sum(float(x["margin"]) for x in account["positions"])
+            maximum_loss = expected_gain = 0.0
+            for x in account["positions"]:
+                quantity = float(x["quantity"]); close_fee_stop = quantity * float(x["stop"]) * config.fee_bps / 10000
+                close_fee_target = quantity * float(x["target"]) * config.fee_bps / 10000
+                maximum_loss += quantity * abs(float(x["entry"]) - float(x["stop"])) + close_fee_stop
+                expected_gain += max(0.0, quantity * abs(float(x["target"]) - float(x["entry"])) - close_fee_target)
+            available_capital = float(account["equity"]) - used_margin
+            daily_loss_remaining = max(0.0, config.max_daily_loss + float(account["summary"]["realized"]))
+            for metric, value in (("used_margin", used_margin), ("available_capital", available_capital),
+                                  ("maximum_loss", maximum_loss), ("expected_gain", expected_gain),
+                                  ("daily_loss_remaining", daily_loss_remaining)):
+                CAPITAL.labels(name, metric).set(value)
             for side in ("LONG", "SHORT"):
                 POSITIONS.labels(name, side).set(sum(1 for x in account["positions"] if x["side"] == side))
             for position in account["positions"]:
-                labels = (name, position["symbol"], position["side"])
-                POSITION_INFO.labels(*labels).set(1)
+                base_labels = (name, position["symbol"], position["side"])
+                status = "WINNING" if float(position["unrealized_pnl"]) > 0 else "LOSING" if float(position["unrealized_pnl"]) < 0 else "FLAT"
+                POSITION_INFO.labels(*base_labels, status).set(1)
+                labels = base_labels
                 for level in ("entry", "mark", "stop", "target", "liquidation"):
                     POSITION_PRICE.labels(*labels, level).set(position[level])
                 UNREALIZED.labels(*labels).set(position["unrealized_pnl"])
@@ -103,6 +122,11 @@ def execute():
             FILL_INFO.labels(*labels, item["reason"]).set(1)
             for field in ("price", "notional", "fee", "pnl"):
                 FILL_VALUE.labels(*labels, field).set(item[field])
+        for item in result["recentClosedTrades"]:
+            trade_id = str(item["id"]); closed_at = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(item["timestamp"]))
+            CLOSED_INFO.labels(trade_id, closed_at, item["strategy"], item["symbol"], item["side"], item["reason"]).set(1)
+            for field in ("entry_price", "exit_price", "fee", "pnl"):
+                CLOSED_VALUE.labels(trade_id, item["symbol"], item["side"], field).set(float(item[field] or 0))
         LAST.set(time.time()); state.update(healthy=True, error=None)
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)

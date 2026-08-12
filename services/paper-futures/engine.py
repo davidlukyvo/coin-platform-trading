@@ -111,6 +111,15 @@ class FuturesJournal:
         result["signals"] = int(self.db.execute("SELECT count(*) FROM signals WHERE strategy=?", (strategy,)).fetchone()[0])
         return result
 
+    def recent_closed_trades(self, limit: int = 20) -> list[dict]:
+        rows = self.db.execute("""
+          SELECT c.id,c.timestamp,c.strategy,c.symbol,c.side,c.price AS exit_price,c.fee,c.pnl,c.reason,
+                 (SELECT o.price FROM fills o WHERE o.strategy=c.strategy AND o.symbol=c.symbol
+                    AND o.action='OPEN' AND o.timestamp<c.timestamp ORDER BY o.timestamp DESC LIMIT 1) AS entry_price
+          FROM fills c WHERE c.action IN ('CLOSE','LIQUIDATION') ORDER BY c.id DESC LIMIT ?
+        """, (limit,))
+        return [dict(row) for row in rows]
+
 
 class FuturesEngine:
     strategies = ("ema_trend_x10", "wyckoff_x10")
@@ -221,7 +230,8 @@ class FuturesEngine:
         state = {"mode": "PAPER_FUTURES_ONLY", "liveTrading": False, "executionActionable": False,
                  "leverage": self.config.leverage, "marginMode": "ISOLATED", "fundingModel": "NOT_INSTRUMENTED",
                  "updatedAt": datetime.now(UTC).isoformat(), "config": asdict(self.config), "accounts": accounts,
-                 "recentSignals": self.journal.recent("signals"), "recentFills": self.journal.recent("fills")}
+                 "recentSignals": self.journal.recent("signals"), "recentFills": self.journal.recent("fills"),
+                 "recentClosedTrades": self.journal.recent_closed_trades()}
         self.data_root.mkdir(parents=True, exist_ok=True); tmp = self.data_root / "latest-state.json.tmp"
         tmp.write_text(json.dumps(state, separators=(",", ":")) + "\n", encoding="utf-8"); os.replace(tmp, self.data_root / "latest-state.json")
         os.chmod(self.data_root / "latest-state.json", 0o600); os.chmod(self.data_root / "paper-futures.db", 0o600)

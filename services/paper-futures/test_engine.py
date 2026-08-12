@@ -41,6 +41,7 @@ def test_ema_and_wyckoff_are_separate_accounts(tmp_path, monkeypatch):
     assert accounts["wyckoff_x10"]["positions"][0]["side"] == "SHORT"
     assert accounts["ema_trend_x10"]["gross_notional"] > 900
     assert (tmp_path / "data" / "paper-futures.db").exists()
+    assert state["recentClosedTrades"] == []
 
 
 def test_wyckoff_wait_does_not_open(tmp_path, monkeypatch):
