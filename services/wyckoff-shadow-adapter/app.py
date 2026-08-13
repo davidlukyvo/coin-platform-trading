@@ -22,6 +22,9 @@ INTENT = Gauge("wyckoff_composite_operator_intent_info", "Rule-based composite o
 VSA = Gauge("wyckoff_vsa_event_info", "Confirmed VSA events on latest closed candle", ["symbol", "event", "direction", "status", "explanation"])
 VSA_SCORE = Gauge("wyckoff_vsa_event_score", "Rule score for confirmed VSA events", ["symbol", "event"])
 FEATURE = Gauge("wyckoff_market_feature", "Bounded market-structure features", ["symbol", "feature"])
+SCHEDULER = Gauge("wyckoff_scheduler_bars", "Closed-bar scheduler state", ["symbol", "state"])
+PROCESSING_LAG = Gauge("wyckoff_scheduler_processing_lag_seconds", "Age of latest complete 5m source bar", ["symbol"])
+PROCESSED = Counter("wyckoff_scheduler_processed_bars_total", "Closed 5m bars evaluated in event-time order", ["symbol"])
 ERRORS = Counter("wyckoff_adapter_errors_total", "Wyckoff adapter cycle errors", ["type"])
 state = {"healthy": False, "error": None, "last_success": 0.0}
 thresholds = Thresholds(
@@ -32,7 +35,7 @@ adapter = WyckoffShadowAdapter(
     Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.getenv("WYCKOFF_OUTPUT_ROOT", "/data/wyckoff-signals")),
     os.getenv("WYCKOFF_DATA_EXCHANGE", "binance"),
     tuple(item.strip().upper() for item in os.getenv("WYCKOFF_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if item.strip()),
-    thresholds,
+    thresholds, int(os.getenv("WYCKOFF_MAX_CATCHUP_BARS", "96")),
 )
 
 
@@ -52,6 +55,13 @@ def execute():
             for feature in ("relativeVolume15m", "spreadRatio15m", "closeLocation15m", "rangePosition", "rangeWidthATR"):
                 FEATURE.labels(signal["symbol"], feature).set(signal["features"][feature])
         JOURNAL.set(result["journalRows"]); RESEARCH_JOURNAL.set(result["researchJournalRows"]); LAST.set(time.time())
+        SCHEDULER.clear()
+        for item in result["scheduler"]:
+            SCHEDULER.labels(item["symbol"], "backlog").set(item["backlogBars"])
+            SCHEDULER.labels(item["symbol"], "missing").set(item["missingResearchBars"])
+            PROCESSING_LAG.labels(item["symbol"]).set(item["processingLagSeconds"])
+            if item["processedBars"]:
+                PROCESSED.labels(item["symbol"]).inc(item["processedBars"])
         state.update(healthy=True, error=None, last_success=time.time())
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)

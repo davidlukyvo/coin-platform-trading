@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from engine import (SignalJournal, Thresholds, classify_market_phase, detect_vsa_events,
-                    evaluate, raw_event, resample_closed)
+from engine import (SignalJournal, Thresholds, WyckoffShadowAdapter, classify_market_phase,
+                    detect_vsa_events, evaluate, raw_event, resample_closed)
 
 
 def minute_frame(periods=5000, start="2026-08-01T00:00:00Z"):
@@ -86,3 +86,35 @@ def test_journal_is_exactly_once(tmp_path):
         "SELECT execution_actionable, execution_gate_passed FROM signals"
     ).fetchone()
     assert flags == (0, 0)
+
+
+def test_scheduler_processes_every_unseen_closed_5m_bar_in_order(tmp_path, monkeypatch):
+    source = {"frame": minute_frame(periods=4000)}
+    monkeypatch.setattr("engine.load_closed_minutes", lambda *_args, **_kwargs: source["frame"].copy())
+    adapter = WyckoffShadowAdapter(tmp_path, tmp_path / "out", "binance", ("BTCUSDT",), Thresholds())
+    first = adapter.run_once()
+    assert first["researchJournalRows"] == 1
+
+    source["frame"] = minute_frame(periods=4015)
+    second = adapter.run_once()
+    rows = adapter.journal.connection.execute(
+        "SELECT market_time FROM research_observations WHERE symbol='BTCUSDT' ORDER BY market_time"
+    ).fetchall()
+    timestamps = [pd.Timestamp(row[0]) for row in rows]
+    assert len(timestamps) == 4
+    assert all((right - left) == pd.Timedelta("5min") for left, right in zip(timestamps, timestamps[1:]))
+    assert second["scheduler"][0]["processedBars"] == 3
+    assert second["scheduler"][0]["backlogBars"] == 0
+    assert second["scheduler"][0]["missingResearchBars"] == 0
+
+
+def test_scheduler_catchup_cap_does_not_skip_to_latest_bar(tmp_path, monkeypatch):
+    source = {"frame": minute_frame(periods=4000)}
+    monkeypatch.setattr("engine.load_closed_minutes", lambda *_args, **_kwargs: source["frame"].copy())
+    adapter = WyckoffShadowAdapter(tmp_path, tmp_path / "out", "binance", ("BTCUSDT",), Thresholds(), 2)
+    adapter.run_once()
+    source["frame"] = minute_frame(periods=4020)
+    result = adapter.run_once()
+    assert result["scheduler"][0]["processedBars"] == 2
+    assert result["scheduler"][0]["backlogBars"] == 2
+    assert adapter.journal.research_count() == 3

@@ -30,3 +30,15 @@ groups:
         labels: {severity: warning}
         annotations:
           summary: Wyckoff VSA exactly-once research journal is not advancing
+      - alert: WyckoffResearchBacklog
+        expr: wyckoff_scheduler_bars{state="backlog"} > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff closed-bar research scheduler has a persistent backlog
+      - alert: WyckoffResearchBarsMissing
+        expr: wyckoff_scheduler_bars{state="missing"} > 0
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: Wyckoff research journal is behind the latest complete 5m candle

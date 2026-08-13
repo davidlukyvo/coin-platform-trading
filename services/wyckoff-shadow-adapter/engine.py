@@ -317,24 +317,70 @@ class SignalJournal:
     def research_count(self) -> int:
         return int(self.connection.execute("SELECT count(*) FROM research_observations").fetchone()[0])
 
+    def last_market_time(self, symbol: str) -> pd.Timestamp | None:
+        row = self.connection.execute(
+            "SELECT max(market_time) FROM research_observations WHERE symbol=?", (symbol,)
+        ).fetchone()
+        return None if not row or not row[0] else pd.Timestamp(row[0])
+
 
 class WyckoffShadowAdapter:
-    def __init__(self, silver_root: Path, output_root: Path, exchange: str, symbols: tuple[str, ...], thresholds: Thresholds):
+    def __init__(self, silver_root: Path, output_root: Path, exchange: str, symbols: tuple[str, ...],
+                 thresholds: Thresholds, max_catchup_bars: int = 96):
         self.silver_root, self.output_root = silver_root, output_root
         self.exchange, self.symbols, self.thresholds = exchange, symbols, thresholds
+        self.max_catchup_bars = max(1, max_catchup_bars)
         self.journal = SignalJournal(output_root / "signals.db")
 
     def run_once(self) -> dict:
-        signals, inserted = [], 0
+        signals, inserted, scheduler_state = [], 0, []
         for symbol in self.symbols:
-            signal = evaluate(load_closed_minutes(self.silver_root, self.exchange, symbol), self.exchange, symbol, self.thresholds)
-            signals.append(signal)
-            inserted += int(self.journal.record(signal))
+            minutes = load_closed_minutes(self.silver_root, self.exchange, symbol)
+            closed_5m = resample_closed(minutes, "5min")
+            if closed_5m.empty:
+                raise ValueError("no_complete_5m_bars")
+            watermark = self.journal.last_market_time(symbol)
+            available = closed_5m if watermark is None else closed_5m[
+                pd.to_datetime(closed_5m["close_time"], utc=True) > watermark]
+            # A new installation starts at the latest closed bar. Historical replay is an explicit job,
+            # never an accidental side effect of deploying the live shadow scheduler.
+            if watermark is None:
+                available = closed_5m.tail(1)
+            backlog_before = len(available)
+            processed = 0
+            latest_signal = None
+            for candidate in available.head(self.max_catchup_bars).itertuples(index=False):
+                candidate_close = pd.Timestamp(candidate.close_time)
+                event_minutes = minutes[pd.to_datetime(minutes["close_time"], utc=True) <= candidate_close]
+                if len(event_minutes) < 1800:
+                    continue
+                signal = evaluate(event_minutes, self.exchange, symbol, self.thresholds,
+                                  now=candidate_close.timestamp())
+                inserted += int(self.journal.record(signal)); processed += 1; latest_signal = signal
+            # Projection always describes the latest available market, while journal writes above are
+            # ordered by closed-bar event time and cannot see a future candle.
+            projection = evaluate(minutes, self.exchange, symbol, self.thresholds)
+            if backlog_before <= self.max_catchup_bars and (
+                    latest_signal is None or latest_signal["signalId"] != projection["signalId"]):
+                inserted += int(self.journal.record(projection))
+            signals.append(projection)
+            latest_close = pd.Timestamp(closed_5m["close_time"].iloc[-1])
+            current_watermark = self.journal.last_market_time(symbol)
+            expected_steps = 0 if current_watermark is None else max(
+                0, int((latest_close - current_watermark).total_seconds() // 300))
+            scheduler_state.append({
+                "symbol": symbol, "processedBars": processed,
+                "backlogBars": max(0, backlog_before - processed),
+                "missingResearchBars": expected_steps,
+                "processingLagSeconds": max(0.0, time.time() - latest_close.timestamp()),
+                "watermark": None if current_watermark is None else current_watermark.isoformat(),
+            })
         state = {
             "mode": "SHADOW_ONLY", "liveTrading": False, "executionActionable": False,
             "executionGatePassed": False, "adapterVersion": "wyckoff_vsa_research_v1",
             "updatedAt": datetime.now(UTC).isoformat(), "journalRows": self.journal.count(),
-            "researchJournalRows": self.journal.research_count(), "newSignals": inserted, "signals": signals,
+            "researchJournalRows": self.journal.research_count(), "newSignals": inserted,
+            "scheduler": scheduler_state, "signals": signals,
         }
         self.output_root.mkdir(parents=True, exist_ok=True)
         temporary = self.output_root / "latest-signals.json.tmp"
