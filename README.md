@@ -2,7 +2,22 @@
 
 Self-hosted cryptocurrency market-data and research platform for a Windows 11 Hyper-V home lab.
 
-## Phase 1 scope
+## Current direction
+
+This repository is evolving into an **AI Wyckoff Research Terminal**:
+Binance/BingX market data → canonical Silver data → quantified Wyckoff/VSA →
+GPT Market Narrator → dashboards → strictly isolated paper trading.
+
+The CTO-level architecture, backlog and NUC deployment path are maintained in:
+
+- [`docs/CTO_MASTER_PLAN.md`](docs/CTO_MASTER_PLAN.md)
+- [`docs/PRODUCT_BACKLOG.md`](docs/PRODUCT_BACKLOG.md)
+- [`docs/REPOSITORY_BLUEPRINT.md`](docs/REPOSITORY_BLUEPRINT.md)
+- [`docs/NUC_UBUNTU_DEPLOYMENT.md`](docs/NUC_UBUNTU_DEPLOYMENT.md)
+
+Live execution is intentionally disabled and GPT is outside the execution path.
+
+## Initial platform scope
 
 - Ubuntu Server 24.04 VM on Hyper-V
 - Docker Compose deployment
