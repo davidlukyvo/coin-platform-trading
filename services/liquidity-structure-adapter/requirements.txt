@@ -1,0 +1,4 @@
+duckdb==1.4.4
+pandas==3.0.1
+pyarrow==23.0.1
+prometheus-client==0.24.1

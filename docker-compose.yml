@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures /host/liquidity-structure
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -25,6 +25,8 @@ services:
         chmod 2750 /host/wyckoff-signals
         chown -R 10009:10009 /host/paper-futures
         chmod 700 /host/paper-futures
+        chown -R 10010:10010 /host/liquidity-structure
+        chmod 700 /host/liquidity-structure
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -414,6 +416,45 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    mem_limit: 384m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  liquidity-structure-adapter:
+    build:
+      context: ./services/liquidity-structure-adapter
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      LIQUIDITY_OUTPUT_ROOT: /data/liquidity-structure
+      LIQUIDITY_DATA_EXCHANGE: ${LIQUIDITY_DATA_EXCHANGE:-binance}
+      LIQUIDITY_SYMBOLS: ${LIQUIDITY_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      LIQUIDITY_INTERVAL_SECONDS: ${LIQUIDITY_INTERVAL_SECONDS:-60}
+      LIQUIDITY_MAX_MARKET_AGE_SECONDS: ${LIQUIDITY_MAX_MARKET_AGE_SECONDS:-3900}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/liquidity-structure:/data/liquidity-structure
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     mem_limit: 384m
     cpus: 0.5
     logging:

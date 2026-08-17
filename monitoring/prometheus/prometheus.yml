@@ -43,6 +43,9 @@ scrape_configs:
     scrape_interval: 30s
     static_configs:
       - targets: ["silver-quality-exporter:8081"]
+  - job_name: liquidity-structure-adapter
+    static_configs:
+      - targets: ["liquidity-structure-adapter:8082"]
   - job_name: node-exporter
     static_configs:
       - targets: ["node-exporter:9100"]

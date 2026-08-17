@@ -1,0 +1,22 @@
+groups:
+  - name: liquidity-structure-adapter
+    rules:
+      - alert: LiquidityStructureAdapterDown
+        expr: up{job="liquidity-structure-adapter"} == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Liquidity Structure shadow adapter is unavailable"}
+      - alert: LiquidityStructureAdapterStale
+        expr: time() - liquidity_structure_last_success_unixtime > 3900
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Liquidity Structure research has not completed recently"}
+      - alert: LiquidityStructureAdapterErrors
+        expr: increase(liquidity_structure_errors_total[15m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "Liquidity Structure adapter reported evaluation errors"}
+      - alert: LiquidityStructureJournalStalled
+        expr: changes(liquidity_structure_journal_rows[20m]) == 0 and up{job="liquidity-structure-adapter"} == 1
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "Liquidity Structure exactly-once journal stopped advancing"}
