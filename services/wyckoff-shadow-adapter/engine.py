@@ -337,7 +337,7 @@ class WyckoffShadowAdapter:
         for symbol in self.symbols:
             try:
                 minutes = load_closed_minutes(self.silver_root, self.exchange, symbol)
-            except (FileNotFoundError, OSError, ValueError):
+            except (duckdb.IOException, FileNotFoundError, OSError):
                 scheduler_state.append({
                     "symbol": symbol, "status": "WARMING_UP", "reason": "source_not_available",
                     "processedBars": 0, "backlogBars": 0, "missingResearchBars": 0,
