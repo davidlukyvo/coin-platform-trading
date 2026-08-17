@@ -53,6 +53,11 @@ def expected_minutes(first: float, last: float) -> int:
     return int(math.floor((last - first) / 60.0)) + 1
 
 
+def trailing_minutes(latest: float, expected_latest: float) -> int:
+    """Count only candles after the latest available candle, never time before a source began."""
+    return max(0, expected_minutes(latest + 60.0, expected_latest))
+
+
 def classify(lag: float, completeness: float, warning_lag: int, stale_lag: int) -> int:
     if lag > stale_lag or completeness < 0.98:
         return 0
@@ -78,11 +83,11 @@ def scan(root: Path, source: Source, now: float, warning_lag: int = 1800, stale_
         raise ValueError("no_closed_candles")
     earliest, latest, last_close, rows_total, rows_today = float(row[0]), float(row[1]), float(row[2]), int(row[3]), int(row[4])
     expected_total = expected_minutes(earliest, latest)
-    expected_today = expected_minutes(midnight, min(latest, closed_minute)) if latest >= midnight else 0
-    expected_wall_today = expected_minutes(midnight, closed_minute) if closed_minute >= midnight else 0
+    today_start = max(midnight, earliest)
+    expected_today = expected_minutes(today_start, min(latest, closed_minute)) if latest >= today_start else 0
     missing_total = max(0, expected_total - rows_total)
     missing_today = max(0, expected_today - rows_today)
-    trailing_today = max(0, expected_wall_today - expected_today)
+    trailing_today = trailing_minutes(latest, closed_minute)
     completeness_total = rows_total / expected_total if expected_total else 0.0
     completeness_today = rows_today / expected_today if expected_today else 0.0
     lag = max(0.0, now - last_close)

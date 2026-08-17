@@ -1,4 +1,4 @@
-from quality import Quality, classify, expected_minutes, parse_sources, timeframe_readiness
+from quality import Quality, classify, expected_minutes, parse_sources, timeframe_readiness, trailing_minutes
 
 
 def quality(rows=6000, status=2, completeness=1.0):
@@ -15,6 +15,12 @@ def test_parse_sources_is_bounded_and_explicit():
 def test_expected_minutes_includes_both_boundaries():
     assert expected_minutes(0, 0) == 1
     assert expected_minutes(0, 119) == 2
+
+
+def test_trailing_minutes_ignores_time_before_source_started():
+    assert trailing_minutes(10_000, 10_000) == 0
+    assert trailing_minutes(10_000, 10_059) == 0
+    assert trailing_minutes(10_000, 10_060) == 1
 
 
 def test_status_thresholds_fail_closed():
