@@ -131,8 +131,8 @@ class FuturesEngine:
         self.silver_root, self.wyckoff_root, self.data_root = silver_root, wyckoff_root, data_root
         self.exchange, self.symbols, self.config = exchange, symbols, config
         self.strategy_symbols = {
-            "ema_trend_x10": tuple(ema_symbols or symbols),
-            "wyckoff_x10": tuple(wyckoff_symbols or symbols),
+            "ema_trend_x10": tuple(symbols if ema_symbols is None else ema_symbols),
+            "wyckoff_x10": tuple(symbols if wyckoff_symbols is None else wyckoff_symbols),
         }
         self.journal = FuturesJournal(data_root / "paper-futures.db", self.strategies, config.starting_equity)
 
@@ -179,7 +179,19 @@ class FuturesEngine:
         path = self.wyckoff_root / "latest-signals.json"
         state = json.loads(path.read_text(encoding="utf-8"))
         if state.get("mode") != "SHADOW_ONLY" or state.get("liveTrading") is not False: raise ValueError("unsafe_wyckoff_projection")
-        return {x["symbol"]: x for x in state.get("signals", [])}
+        signals = {x["symbol"]: x for x in state.get("signals", [])}
+        for item in state.get("scheduler", []):
+            symbol = item.get("symbol")
+            if symbol and symbol not in signals and item.get("status") == "WARMING_UP":
+                available = int(item.get("availableMinuteBars", 0))
+                required = int(item.get("requiredMinuteBars", 1800))
+                signals[symbol] = {
+                    "symbol": symbol, "barId": f"warmup:{available}:{required}",
+                    "marketTime": state.get("updatedAt", datetime.now(UTC).isoformat()),
+                    "direction": "NONE", "authorityDecision": "WAIT",
+                    "authorityReason": f"collecting_{required}_closed_1m_bars",
+                }
+        return signals
 
     def run_once(self) -> dict:
         prices, ema, frames = {}, {}, {}

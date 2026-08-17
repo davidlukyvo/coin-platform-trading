@@ -83,3 +83,25 @@ def test_strategy_symbol_universes_are_separate(tmp_path, monkeypatch):
     assert ema_symbols == {"BTCUSDT", "ETHUSDT"}
     assert "SOLUSDT" not in ema_symbols
     assert set(seen) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+
+
+def test_wyckoff_warmup_is_wait_not_stale_rejection(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: bars(True))
+    source = tmp_path / "wyckoff"
+    source.mkdir()
+    projection = {
+        "mode": "SHADOW_ONLY", "liveTrading": False, "updatedAt": pd.Timestamp.now(tz="UTC").isoformat(),
+        "signals": [],
+        "scheduler": [{"symbol": "SOLUSDT", "status": "WARMING_UP", "availableMinuteBars": 255,
+                       "requiredMinuteBars": 1800}],
+    }
+    (source / "latest-signals.json").write_text(json.dumps(projection))
+    runner = FuturesEngine(
+        Path("unused"), source, tmp_path / "data", "binance", ("SOLUSDT",), FuturesConfig(),
+        ema_symbols=(), wyckoff_symbols=("SOLUSDT",),
+    )
+    state = runner.run_once()
+    signal = next(item for item in state["recentSignals"] if item["symbol"] == "SOLUSDT")
+    assert signal["decision"] == "WAIT"
+    assert signal["reason"] == "collecting_1800_closed_1m_bars"
+    assert state["accounts"][1]["positions"] == []
