@@ -4,6 +4,7 @@ from engine import Journal, Thresholds, evaluate_bar, is_pivot, resample_5m
 
 
 def bars(values):
+    values = [float(value) for value in values]
     opened = pd.date_range("2026-01-01", periods=len(values), freq="5min", tz="UTC")
     return pd.DataFrame({"open_time": opened, "close_time": opened + pd.Timedelta(minutes=5),
                          "open": values, "high": [x + 1 for x in values], "low": [x - 1 for x in values],
