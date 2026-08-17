@@ -19,6 +19,7 @@ class FuturesConfig:
     starting_equity: float = 10000.0
     margin_per_trade: float = 100.0
     fee_bps: float = 5.0
+    personal_income_tax_bps: float = 10.0
     slippage_bps: float = 2.0
     maintenance_margin_fraction: float = 0.005
     ema_stop_fraction: float = 0.01
@@ -37,6 +38,12 @@ def liquidation_price(entry: float, side: str, leverage: float, maintenance: flo
 
 def position_pnl(side: str, quantity: float, entry: float, mark: float) -> float:
     return quantity * (mark - entry) * (1.0 if side == "LONG" else -1.0)
+
+
+def transaction_tax(action: str, side: str, notional: float, tax_bps: float) -> float:
+    """Conservative Vietnam digital-asset tax stress model: tax sell-side fills only."""
+    is_sell = (action == "OPEN" and side == "SHORT") or (action in {"CLOSE", "LIQUIDATION"} and side == "LONG")
+    return notional * tax_bps / 10000 if is_sell else 0.0
 
 
 def load_latest_bars(root: Path, exchange: str, symbol: str, limit: int = 240) -> pd.DataFrame:
@@ -73,6 +80,12 @@ class FuturesJournal:
         CREATE TABLE IF NOT EXISTS fills(id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp REAL NOT NULL,strategy TEXT NOT NULL,symbol TEXT NOT NULL,action TEXT NOT NULL,side TEXT NOT NULL,quantity REAL NOT NULL,price REAL NOT NULL,notional REAL NOT NULL,fee REAL NOT NULL,pnl REAL NOT NULL,reason TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS equity(timestamp REAL NOT NULL,strategy TEXT NOT NULL,equity REAL NOT NULL,gross_notional REAL NOT NULL,drawdown REAL NOT NULL);
         """)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(fills)")}
+        with self.db:
+            if "tax" not in columns:
+                self.db.execute("ALTER TABLE fills ADD COLUMN tax REAL NOT NULL DEFAULT 0")
+            if "gross_pnl" not in columns:
+                self.db.execute("ALTER TABLE fills ADD COLUMN gross_pnl REAL NOT NULL DEFAULT 0")
         today = datetime.now(UTC).date().isoformat()
         with self.db:
             for strategy in strategies:
@@ -100,7 +113,8 @@ class FuturesJournal:
         return [dict(x) for x in self.db.execute(f"SELECT * FROM {table} ORDER BY timestamp DESC LIMIT ?", (limit,))]
 
     def summary(self, strategy: str) -> dict:
-        row = self.db.execute("""SELECT count(*) fills,coalesce(sum(fee),0) fees,coalesce(sum(pnl),0) realized,
+        row = self.db.execute("""SELECT count(*) fills,coalesce(sum(fee),0) fees,coalesce(sum(tax),0) taxes,
+          coalesce(sum(gross_pnl),0) gross_realized,coalesce(sum(pnl),0) realized,
           sum(CASE WHEN action='CLOSE' THEN 1 ELSE 0 END) closed,
           sum(CASE WHEN action='CLOSE' AND pnl>0 THEN 1 ELSE 0 END) wins,
           sum(CASE WHEN action='LIQUIDATION' THEN 1 ELSE 0 END) liquidations
@@ -113,7 +127,13 @@ class FuturesJournal:
 
     def recent_closed_trades(self, limit: int = 20) -> list[dict]:
         rows = self.db.execute("""
-          SELECT c.id,c.timestamp,c.strategy,c.symbol,c.side,c.price AS exit_price,c.fee,c.pnl,c.reason,
+          SELECT c.id,c.timestamp,c.strategy,c.symbol,c.side,c.price AS exit_price,c.reason,c.gross_pnl,
+                 c.fee + coalesce((SELECT o.fee FROM fills o WHERE o.strategy=c.strategy AND o.symbol=c.symbol
+                    AND o.action='OPEN' AND o.timestamp<c.timestamp ORDER BY o.timestamp DESC LIMIT 1),0) AS fee,
+                 c.tax + coalesce((SELECT o.tax FROM fills o WHERE o.strategy=c.strategy AND o.symbol=c.symbol
+                    AND o.action='OPEN' AND o.timestamp<c.timestamp ORDER BY o.timestamp DESC LIMIT 1),0) AS tax,
+                 c.pnl + coalesce((SELECT o.pnl FROM fills o WHERE o.strategy=c.strategy AND o.symbol=c.symbol
+                    AND o.action='OPEN' AND o.timestamp<c.timestamp ORDER BY o.timestamp DESC LIMIT 1),0) AS pnl,
                  (SELECT o.price FROM fills o WHERE o.strategy=c.strategy AND o.symbol=c.symbol
                     AND o.action='OPEN' AND o.timestamp<c.timestamp ORDER BY o.timestamp DESC LIMIT 1) AS entry_price
           FROM fills c WHERE c.action IN ('CLOSE','LIQUIDATION') ORDER BY c.id DESC LIMIT ?
@@ -139,7 +159,11 @@ class FuturesEngine:
     def _equity(self, strategy: str, prices: dict[str, float]) -> tuple[float, float]:
         account = self.journal.account(strategy); unrealized = gross = 0.0
         for row in self.journal.positions(strategy):
-            mark = prices.get(row["symbol"], row["mark"]); unrealized += position_pnl(row["side"], row["quantity"], row["entry"], mark)
+            mark = prices.get(row["symbol"], row["mark"])
+            notional = row["quantity"] * mark
+            close_fee = notional * self.config.fee_bps / 10000
+            close_tax = transaction_tax("CLOSE", row["side"], notional, self.config.personal_income_tax_bps)
+            unrealized += position_pnl(row["side"], row["quantity"], row["entry"], mark) - close_fee - close_tax
             gross += row["quantity"] * mark
         return float(account["cash"]) + unrealized, gross
 
@@ -148,24 +172,27 @@ class FuturesEngine:
         if not row: return
         adverse = -self.config.slippage_bps / 10000 if row["side"] == "LONG" else self.config.slippage_bps / 10000
         fill = price * (1 + adverse); notional = row["quantity"] * fill; fee = notional * self.config.fee_bps / 10000
-        pnl = position_pnl(row["side"], row["quantity"], row["entry"], fill) - fee
+        tax = transaction_tax(action, row["side"], notional, self.config.personal_income_tax_bps)
+        gross_pnl = position_pnl(row["side"], row["quantity"], row["entry"], fill)
+        pnl = gross_pnl - fee - tax
         with self.journal.db:
             self.journal.db.execute("UPDATE accounts SET cash=cash+? WHERE strategy=?", (pnl, strategy))
             self.journal.db.execute("DELETE FROM positions WHERE strategy=? AND symbol=?", (strategy, symbol))
-            self.journal.db.execute("INSERT INTO fills(timestamp,strategy,symbol,action,side,quantity,price,notional,fee,pnl,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                                    (time.time(), strategy, symbol, action, row["side"], row["quantity"], fill, notional, fee, pnl, reason))
+            self.journal.db.execute("INSERT INTO fills(timestamp,strategy,symbol,action,side,quantity,price,notional,fee,pnl,reason,tax,gross_pnl) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                    (time.time(), strategy, symbol, action, row["side"], row["quantity"], fill, notional, fee, pnl, reason, tax, gross_pnl))
 
     def _open(self, strategy: str, symbol: str, side: str, price: float, stop: float, target: float) -> None:
         slip = self.config.slippage_bps / 10000 if side == "LONG" else -self.config.slippage_bps / 10000
         fill = price * (1 + slip); notional = self.config.margin_per_trade * self.config.leverage
         quantity = notional / fill; fee = notional * self.config.fee_bps / 10000
+        tax = transaction_tax("OPEN", side, notional, self.config.personal_income_tax_bps)
         liquidation = liquidation_price(fill, side, self.config.leverage, self.config.maintenance_margin_fraction)
         with self.journal.db:
-            self.journal.db.execute("UPDATE accounts SET cash=cash-? WHERE strategy=?", (fee, strategy))
+            self.journal.db.execute("UPDATE accounts SET cash=cash-? WHERE strategy=?", (fee + tax, strategy))
             self.journal.db.execute("INSERT OR REPLACE INTO positions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                                     (strategy, symbol, side, quantity, fill, price, self.config.margin_per_trade, stop, target, liquidation, time.time()))
-            self.journal.db.execute("INSERT INTO fills(timestamp,strategy,symbol,action,side,quantity,price,notional,fee,pnl,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                                    (time.time(), strategy, symbol, "OPEN", side, quantity, fill, notional, fee, -fee, "signal_entry"))
+            self.journal.db.execute("INSERT INTO fills(timestamp,strategy,symbol,action,side,quantity,price,notional,fee,pnl,reason,tax,gross_pnl) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                    (time.time(), strategy, symbol, "OPEN", side, quantity, fill, notional, fee, -(fee + tax), "signal_entry", tax, 0.0))
 
     def _allowed(self, strategy: str, prices: dict[str, float]) -> tuple[bool, str]:
         equity, gross = self._equity(strategy, prices); account = self.journal.account(strategy)
@@ -242,11 +269,16 @@ class FuturesEngine:
                 self.journal.db.execute("UPDATE accounts SET peak=? WHERE strategy=?", (peak, strategy))
                 self.journal.db.execute("INSERT INTO equity VALUES(?,?,?,?,?)", (time.time(), strategy, equity, gross, drawdown))
             positions = self.journal.positions(strategy)
-            for row in positions: row["unrealized_pnl"] = position_pnl(row["side"], row["quantity"], row["entry"], prices[row["symbol"]])
+            for row in positions:
+                mark = prices[row["symbol"]]; notional = row["quantity"] * mark
+                row["unrealized_pnl"] = (position_pnl(row["side"], row["quantity"], row["entry"], mark)
+                                         - notional * self.config.fee_bps / 10000
+                                         - transaction_tax("CLOSE", row["side"], notional, self.config.personal_income_tax_bps))
             accounts.append({"strategy": strategy, "equity": equity, "cash": float(account["cash"]), "gross_notional": gross,
                              "drawdown": drawdown, "positions": positions, "summary": self.journal.summary(strategy)})
         state = {"mode": "PAPER_FUTURES_ONLY", "liveTrading": False, "executionActionable": False,
                  "leverage": self.config.leverage, "marginMode": "ISOLATED", "fundingModel": "NOT_INSTRUMENTED",
+                 "taxModel": "VIETNAM_DIGITAL_ASSET_SELL_SIDE_STRESS_V1",
                  "updatedAt": datetime.now(UTC).isoformat(), "config": asdict(self.config), "accounts": accounts,
                  "recentSignals": self.journal.recent("signals"), "recentFills": self.journal.recent("fills"),
                  "recentClosedTrades": self.journal.recent_closed_trades()}

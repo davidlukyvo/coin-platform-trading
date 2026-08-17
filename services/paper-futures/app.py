@@ -42,6 +42,7 @@ def number(name, default, cast=float): return cast(os.getenv(name, str(default))
 config = FuturesConfig(
     leverage=number("FUTURES_LEVERAGE", 10), starting_equity=number("FUTURES_STARTING_EQUITY", 10000),
     margin_per_trade=number("FUTURES_MARGIN_PER_TRADE", 100), fee_bps=number("FUTURES_FEE_BPS", 5),
+    personal_income_tax_bps=number("FUTURES_PERSONAL_INCOME_TAX_BPS", 10),
     slippage_bps=number("FUTURES_SLIPPAGE_BPS", 2), maintenance_margin_fraction=number("FUTURES_MAINTENANCE_MARGIN", 0.005),
     ema_stop_fraction=number("FUTURES_EMA_STOP_FRACTION", 0.01), ema_target_fraction=number("FUTURES_EMA_TARGET_FRACTION", 0.02),
     max_gross_notional=number("FUTURES_MAX_GROSS_NOTIONAL", 2000), max_daily_loss=number("FUTURES_MAX_DAILY_LOSS", 100),
@@ -77,8 +78,10 @@ def execute():
             for x in account["positions"]:
                 quantity = float(x["quantity"]); close_fee_stop = quantity * float(x["stop"]) * config.fee_bps / 10000
                 close_fee_target = quantity * float(x["target"]) * config.fee_bps / 10000
-                maximum_loss += quantity * abs(float(x["entry"]) - float(x["stop"])) + close_fee_stop
-                expected_gain += max(0.0, quantity * abs(float(x["target"]) - float(x["entry"])) - close_fee_target)
+                close_tax_stop = quantity * float(x["stop"]) * config.personal_income_tax_bps / 10000 if x["side"] == "LONG" else 0.0
+                close_tax_target = quantity * float(x["target"]) * config.personal_income_tax_bps / 10000 if x["side"] == "LONG" else 0.0
+                maximum_loss += quantity * abs(float(x["entry"]) - float(x["stop"])) + close_fee_stop + close_tax_stop
+                expected_gain += max(0.0, quantity * abs(float(x["target"]) - float(x["entry"])) - close_fee_target - close_tax_target)
             available_capital = float(account["equity"]) - used_margin
             daily_loss_remaining = max(0.0, config.max_daily_loss + float(account["summary"]["realized"]))
             for metric, value in (("used_margin", used_margin), ("available_capital", available_capital),
@@ -109,7 +112,7 @@ def execute():
                 for metric, value in (("margin", float(position["margin"])), ("notional", notional),
                                       ("risk_reward", reward / risk if risk else 0.0)):
                     POSITION_DETAIL.labels(*labels, metric).set(value)
-            for metric in ("signals", "fills", "closed", "wins", "fees", "realized", "liquidations", "win_rate"):
+            for metric in ("signals", "fills", "closed", "wins", "fees", "taxes", "gross_realized", "realized", "liquidations", "win_rate"):
                 SUMMARY.labels(name, metric).set(account["summary"][metric])
         latest_signals = {}
         latest_risk = {}
@@ -128,12 +131,12 @@ def execute():
         for item in latest_fills.values():
             labels = (item["strategy"], item["symbol"], item["action"], item["side"])
             FILL_INFO.labels(*labels, item["reason"]).set(1)
-            for field in ("price", "notional", "fee", "pnl"):
+            for field in ("price", "notional", "fee", "tax", "gross_pnl", "pnl"):
                 FILL_VALUE.labels(*labels, field).set(item[field])
         for item in result["recentClosedTrades"]:
             trade_id = str(item["id"]); closed_at = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(item["timestamp"]))
             CLOSED_INFO.labels(trade_id, closed_at, item["strategy"], item["symbol"], item["side"], item["reason"]).set(1)
-            for field in ("entry_price", "exit_price", "fee", "pnl"):
+            for field in ("entry_price", "exit_price", "gross_pnl", "fee", "tax", "pnl"):
                 CLOSED_VALUE.labels(trade_id, item["symbol"], item["side"], field).set(float(item[field] or 0))
         LAST.set(time.time()); state.update(healthy=True, error=None)
     except Exception as exc:

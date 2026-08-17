@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 import engine
-from engine import FuturesConfig, FuturesEngine, liquidation_price, position_pnl
+from engine import FuturesConfig, FuturesEngine, liquidation_price, position_pnl, transaction_tax
 
 
 def bars(up=True):
@@ -27,6 +27,32 @@ def test_x10_liquidation_and_directional_pnl():
     assert liquidation_price(100, "SHORT", 10, 0.005) == 109.5
     assert position_pnl("LONG", 10, 100, 101) == 10
     assert position_pnl("SHORT", 10, 100, 99) == 10
+
+
+def test_sell_side_personal_income_tax_stress_model():
+    assert transaction_tax("OPEN", "LONG", 1000, 10) == 0
+    assert transaction_tax("CLOSE", "SHORT", 1000, 10) == 0
+    assert transaction_tax("OPEN", "SHORT", 1000, 10) == 1
+    assert transaction_tax("CLOSE", "LONG", 1000, 10) == 1
+    assert transaction_tax("LIQUIDATION", "LONG", 1000, 10) == 1
+
+
+def test_long_round_trip_reports_gross_fees_tax_and_net(tmp_path):
+    config = FuturesConfig(fee_bps=5, personal_income_tax_bps=10, slippage_bps=0)
+    runner = FuturesEngine(Path("unused"), tmp_path / "wyckoff", tmp_path / "data", "binance", ("BTCUSDT",), config)
+    runner._open("ema_trend_x10", "BTCUSDT", "LONG", 100, 99, 102)
+    runner._close("ema_trend_x10", "BTCUSDT", 101, "CLOSE", "target")
+
+    summary = runner.journal.summary("ema_trend_x10")
+    trade = runner.journal.recent_closed_trades(1)[0]
+    assert round(summary["gross_realized"], 6) == 10
+    assert round(summary["fees"], 6) == 1.005
+    assert round(summary["taxes"], 6) == 1.01
+    assert round(summary["realized"], 6) == 7.985
+    assert round(trade["gross_pnl"], 6) == 10
+    assert round(trade["fee"], 6) == 1.005
+    assert round(trade["tax"], 6) == 1.01
+    assert round(trade["pnl"], 6) == 7.985
 
 
 def test_ema_and_wyckoff_are_separate_accounts(tmp_path, monkeypatch):
