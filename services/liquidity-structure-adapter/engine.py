@@ -71,7 +71,10 @@ class Journal:
         root.mkdir(parents=True, exist_ok=True)
         os.chmod(root, 0o700)
         self.path = root / "liquidity-structure.db"
-        self.db = sqlite3.connect(self.path)
+        # The first cycle runs on the main thread and scheduled cycles run on
+        # the scheduler thread.  Access remains serial, but SQLite must allow
+        # the connection to move between those two threads.
+        self.db = sqlite3.connect(self.path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         with self.db:
             self.db.executescript("""
