@@ -118,3 +118,20 @@ def test_scheduler_catchup_cap_does_not_skip_to_latest_bar(tmp_path, monkeypatch
     assert result["scheduler"][0]["processedBars"] == 2
     assert result["scheduler"][0]["backlogBars"] == 2
     assert adapter.journal.research_count() == 3
+
+
+def test_new_symbol_warms_up_without_interrupting_ready_symbols(tmp_path, monkeypatch):
+    def source(_root, _exchange, symbol):
+        return minute_frame(periods=4000 if symbol == "BTCUSDT" else 120)
+
+    monkeypatch.setattr("engine.load_closed_minutes", source)
+    adapter = WyckoffShadowAdapter(
+        tmp_path, tmp_path / "out", "binance", ("BTCUSDT", "SOLUSDT"), Thresholds()
+    )
+    result = adapter.run_once()
+    by_symbol = {item["symbol"]: item for item in result["scheduler"]}
+    assert [signal["symbol"] for signal in result["signals"]] == ["BTCUSDT"]
+    assert by_symbol["BTCUSDT"]["status"] == "READY"
+    assert by_symbol["SOLUSDT"]["status"] == "WARMING_UP"
+    assert by_symbol["SOLUSDT"]["availableMinuteBars"] == 120
+    assert result["researchJournalRows"] == 1

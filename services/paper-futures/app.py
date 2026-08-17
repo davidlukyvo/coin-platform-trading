@@ -48,9 +48,17 @@ config = FuturesConfig(
     max_drawdown_fraction=number("FUTURES_MAX_DRAWDOWN_FRACTION", 0.05), max_trades_per_day=number("FUTURES_MAX_TRADES_PER_DAY", 30, int),
     max_market_age_seconds=number("FUTURES_MAX_MARKET_AGE_SECONDS", 3900, int),
 )
+def symbols(name: str, fallback: str) -> tuple[str, ...]:
+    return tuple(x.strip().upper() for x in os.getenv(name, fallback).split(",") if x.strip())
+
+
+legacy_symbols = symbols("FUTURES_SYMBOLS", "BTCUSDT,ETHUSDT")
+ema_symbols = symbols("FUTURES_EMA_SYMBOLS", ",".join(legacy_symbols))
+wyckoff_symbols = symbols("FUTURES_WYCKOFF_SYMBOLS", ",".join(legacy_symbols))
+all_symbols = tuple(dict.fromkeys((*ema_symbols, *wyckoff_symbols)))
 engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.getenv("WYCKOFF_ROOT", "/data/wyckoff")),
                        Path(os.getenv("FUTURES_DATA_ROOT", "/data/paper-futures")), os.getenv("FUTURES_DATA_EXCHANGE", "binance"),
-                       tuple(x.strip().upper() for x in os.getenv("FUTURES_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if x.strip()), config)
+                       all_symbols, config, ema_symbols=ema_symbols, wyckoff_symbols=wyckoff_symbols)
 
 
 def execute():

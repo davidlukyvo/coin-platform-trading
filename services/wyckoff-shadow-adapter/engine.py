@@ -335,10 +335,25 @@ class WyckoffShadowAdapter:
     def run_once(self) -> dict:
         signals, inserted, scheduler_state = [], 0, []
         for symbol in self.symbols:
-            minutes = load_closed_minutes(self.silver_root, self.exchange, symbol)
+            try:
+                minutes = load_closed_minutes(self.silver_root, self.exchange, symbol)
+            except (FileNotFoundError, OSError, ValueError):
+                scheduler_state.append({
+                    "symbol": symbol, "status": "WARMING_UP", "reason": "source_not_available",
+                    "processedBars": 0, "backlogBars": 0, "missingResearchBars": 0,
+                    "processingLagSeconds": 0.0, "watermark": None,
+                    "availableMinuteBars": 0, "requiredMinuteBars": 1800,
+                })
+                continue
             closed_5m = resample_closed(minutes, "5min")
-            if closed_5m.empty:
-                raise ValueError("no_complete_5m_bars")
+            if closed_5m.empty or len(minutes) < 1800:
+                scheduler_state.append({
+                    "symbol": symbol, "status": "WARMING_UP", "reason": "insufficient_closed_history",
+                    "processedBars": 0, "backlogBars": 0, "missingResearchBars": 0,
+                    "processingLagSeconds": 0.0, "watermark": None,
+                    "availableMinuteBars": len(minutes), "requiredMinuteBars": 1800,
+                })
+                continue
             watermark = self.journal.last_market_time(symbol)
             available = closed_5m if watermark is None else closed_5m[
                 pd.to_datetime(closed_5m["close_time"], utc=True) > watermark]
@@ -369,11 +384,12 @@ class WyckoffShadowAdapter:
             expected_steps = 0 if current_watermark is None else max(
                 0, int((latest_close - current_watermark).total_seconds() // 300))
             scheduler_state.append({
-                "symbol": symbol, "processedBars": processed,
+                "symbol": symbol, "status": "READY", "reason": "ready", "processedBars": processed,
                 "backlogBars": max(0, backlog_before - processed),
                 "missingResearchBars": expected_steps,
                 "processingLagSeconds": max(0.0, time.time() - latest_close.timestamp()),
                 "watermark": None if current_watermark is None else current_watermark.isoformat(),
+                "availableMinuteBars": len(minutes), "requiredMinuteBars": 1800,
             })
         state = {
             "mode": "SHADOW_ONLY", "liveTrading": False, "executionActionable": False,

@@ -125,9 +125,15 @@ class FuturesEngine:
     strategies = ("ema_trend_x10", "wyckoff_x10")
 
     def __init__(self, silver_root: Path, wyckoff_root: Path, data_root: Path, exchange: str,
-                 symbols: tuple[str, ...], config: FuturesConfig):
+                 symbols: tuple[str, ...], config: FuturesConfig,
+                 ema_symbols: tuple[str, ...] | None = None,
+                 wyckoff_symbols: tuple[str, ...] | None = None):
         self.silver_root, self.wyckoff_root, self.data_root = silver_root, wyckoff_root, data_root
         self.exchange, self.symbols, self.config = exchange, symbols, config
+        self.strategy_symbols = {
+            "ema_trend_x10": tuple(ema_symbols or symbols),
+            "wyckoff_x10": tuple(wyckoff_symbols or symbols),
+        }
         self.journal = FuturesJournal(data_root / "paper-futures.db", self.strategies, config.starting_equity)
 
     def _equity(self, strategy: str, prices: dict[str, float]) -> tuple[float, float]:
@@ -183,7 +189,7 @@ class FuturesEngine:
             ema[symbol] = {"direction": direction, "price": price, "market_time": market_time, "bar": bar}
         wyckoff = self._wyckoff()
         for strategy in self.strategies:
-            for symbol in self.symbols:
+            for symbol in self.strategy_symbols[strategy]:
                 price = prices[symbol]; current = self.journal.position(strategy, symbol)
                 if current:
                     liquidated = (current["side"] == "LONG" and price <= current["liquidation"]) or (current["side"] == "SHORT" and price >= current["liquidation"])

@@ -71,7 +71,7 @@ services:
     environment:
       TZ: UTC
       BINANCE_WS_BASE: ${BINANCE_WS_BASE:-wss://stream.binance.com:9443}
-      MARKET_SYMBOLS: ${MARKET_SYMBOLS:-btcusdt,ethusdt}
+      MARKET_SYMBOLS: ${MARKET_SYMBOLS:-btcusdt,ethusdt,solusdt}
       MARKET_STREAMS: ${MARKET_STREAMS:-aggTrade,kline_1m}
       RAW_DATA_ROOT: /data/bronze
       QUARANTINE_DATA_ROOT: /data/quarantine
@@ -114,7 +114,7 @@ services:
       TZ: UTC
       EXCHANGE: bingx
       BINGX_WS_BASE: ${BINGX_WS_BASE:-wss://open-api-ws.bingx.com/market}
-      MARKET_SYMBOLS: ${BINGX_MARKET_SYMBOLS:-BTC-USDT,ETH-USDT}
+      MARKET_SYMBOLS: ${BINGX_MARKET_SYMBOLS:-BTC-USDT,ETH-USDT,SOL-USDT}
       MARKET_STREAMS: ${BINGX_MARKET_STREAMS:-trade,kline_1m}
       RAW_DATA_ROOT: /data/bronze
       QUARANTINE_DATA_ROOT: /data/quarantine
@@ -258,6 +258,8 @@ services:
       FUTURES_DATA_ROOT: /data/paper-futures
       FUTURES_DATA_EXCHANGE: ${FUTURES_DATA_EXCHANGE:-binance}
       FUTURES_SYMBOLS: ${FUTURES_SYMBOLS:-BTCUSDT,ETHUSDT}
+      FUTURES_EMA_SYMBOLS: ${FUTURES_EMA_SYMBOLS:-BTCUSDT,ETHUSDT}
+      FUTURES_WYCKOFF_SYMBOLS: ${FUTURES_WYCKOFF_SYMBOLS:-BTCUSDT,ETHUSDT}
       FUTURES_INTERVAL_SECONDS: ${FUTURES_INTERVAL_SECONDS:-60}
       FUTURES_LEVERAGE: "10"
       FUTURES_STARTING_EQUITY: ${FUTURES_STARTING_EQUITY:-10000}
@@ -352,7 +354,7 @@ services:
       SILVER_ROOT: /data/silver
       WYCKOFF_OUTPUT_ROOT: /data/wyckoff-signals
       WYCKOFF_DATA_EXCHANGE: ${WYCKOFF_DATA_EXCHANGE:-binance}
-      WYCKOFF_SYMBOLS: ${WYCKOFF_SYMBOLS:-BTCUSDT,ETHUSDT}
+      WYCKOFF_SYMBOLS: ${WYCKOFF_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
       WYCKOFF_INTERVAL_SECONDS: ${WYCKOFF_INTERVAL_SECONDS:-60}
       WYCKOFF_MAX_CATCHUP_BARS: ${WYCKOFF_MAX_CATCHUP_BARS:-96}
       WYCKOFF_MAX_MARKET_AGE_SECONDS: ${WYCKOFF_MAX_MARKET_AGE_SECONDS:-3900}
@@ -395,7 +397,7 @@ services:
       SILVER_QUALITY_INTERVAL_SECONDS: ${SILVER_QUALITY_INTERVAL_SECONDS:-300}
       SILVER_QUALITY_WARNING_LAG_SECONDS: ${SILVER_QUALITY_WARNING_LAG_SECONDS:-1800}
       SILVER_QUALITY_STALE_LAG_SECONDS: ${SILVER_QUALITY_STALE_LAG_SECONDS:-3900}
-      SILVER_QUALITY_SOURCES: ${SILVER_QUALITY_SOURCES:-binance:spot:websocket:BTCUSDT:kline_1m;binance:spot:websocket:ETHUSDT:kline_1m;bingx:spot:websocket:BTC-USDT:kline_1min;bingx:spot:websocket:ETH-USDT:kline_1min}
+      SILVER_QUALITY_SOURCES: ${SILVER_QUALITY_SOURCES:-binance:spot:websocket:BTCUSDT:kline_1m;binance:spot:websocket:ETHUSDT:kline_1m;binance:spot:websocket:SOLUSDT:kline_1m;bingx:spot:websocket:BTC-USDT:kline_1min;bingx:spot:websocket:ETH-USDT:kline_1min;bingx:spot:websocket:SOL-USDT:kline_1min}
     volumes:
       - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
     healthcheck:

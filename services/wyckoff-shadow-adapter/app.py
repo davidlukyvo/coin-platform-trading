@@ -23,6 +23,8 @@ VSA = Gauge("wyckoff_vsa_event_info", "Confirmed VSA events on latest closed can
 VSA_SCORE = Gauge("wyckoff_vsa_event_score", "Rule score for confirmed VSA events", ["symbol", "event"])
 FEATURE = Gauge("wyckoff_market_feature", "Bounded market-structure features", ["symbol", "feature"])
 SCHEDULER = Gauge("wyckoff_scheduler_bars", "Closed-bar scheduler state", ["symbol", "state"])
+READY = Gauge("wyckoff_symbol_ready", "Wyckoff symbol readiness after closed-bar warm-up", ["symbol"])
+WARMUP = Gauge("wyckoff_symbol_warmup_minute_bars", "Closed 1m bars available during symbol warm-up", ["symbol"])
 PROCESSING_LAG = Gauge("wyckoff_scheduler_processing_lag_seconds", "Age of latest complete 5m source bar", ["symbol"])
 PROCESSED = Counter("wyckoff_scheduler_processed_bars_total", "Closed 5m bars evaluated in event-time order", ["symbol"])
 ERRORS = Counter("wyckoff_adapter_errors_total", "Wyckoff adapter cycle errors", ["type"])
@@ -34,7 +36,7 @@ thresholds = Thresholds(
 adapter = WyckoffShadowAdapter(
     Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.getenv("WYCKOFF_OUTPUT_ROOT", "/data/wyckoff-signals")),
     os.getenv("WYCKOFF_DATA_EXCHANGE", "binance"),
-    tuple(item.strip().upper() for item in os.getenv("WYCKOFF_SYMBOLS", "BTCUSDT,ETHUSDT").split(",") if item.strip()),
+    tuple(item.strip().upper() for item in os.getenv("WYCKOFF_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",") if item.strip()),
     thresholds, int(os.getenv("WYCKOFF_MAX_CATCHUP_BARS", "96")),
 )
 
@@ -55,8 +57,10 @@ def execute():
             for feature in ("relativeVolume15m", "spreadRatio15m", "closeLocation15m", "rangePosition", "rangeWidthATR"):
                 FEATURE.labels(signal["symbol"], feature).set(signal["features"][feature])
         JOURNAL.set(result["journalRows"]); RESEARCH_JOURNAL.set(result["researchJournalRows"]); LAST.set(time.time())
-        SCHEDULER.clear()
+        SCHEDULER.clear(); READY.clear(); WARMUP.clear()
         for item in result["scheduler"]:
+            READY.labels(item["symbol"]).set(1 if item["status"] == "READY" else 0)
+            WARMUP.labels(item["symbol"]).set(item["availableMinuteBars"])
             SCHEDULER.labels(item["symbol"], "backlog").set(item["backlogBars"])
             SCHEDULER.labels(item["symbol"], "missing").set(item["missingResearchBars"])
             PROCESSING_LAG.labels(item["symbol"]).set(item["processingLagSeconds"])

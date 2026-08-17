@@ -60,3 +60,26 @@ def test_unsafe_wyckoff_projection_rejected(tmp_path, monkeypatch):
     try: runner.run_once()
     except ValueError as exc: assert str(exc) == "unsafe_wyckoff_projection"
     else: raise AssertionError("unsafe projection accepted")
+
+
+def test_strategy_symbol_universes_are_separate(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(engine, "load_latest_bars", lambda _root, _exchange, symbol: seen.append(symbol) or bars(True))
+    source = tmp_path / "wyckoff"
+    source.mkdir()
+    projection = {
+        "mode": "SHADOW_ONLY", "liveTrading": False,
+        "signals": [{"symbol": "SOLUSDT", "barId": "sol-1", "marketTime": pd.Timestamp.now(tz="UTC").isoformat(),
+                     "direction": "LONG", "authorityDecision": "WAIT", "authorityReason": "warmup",
+                     "stop": 98, "target": 104}],
+    }
+    (source / "latest-signals.json").write_text(json.dumps(projection))
+    runner = FuturesEngine(
+        Path("unused"), source, tmp_path / "data", "binance", ("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+        FuturesConfig(), ema_symbols=("BTCUSDT", "ETHUSDT"), wyckoff_symbols=("BTCUSDT", "ETHUSDT", "SOLUSDT"),
+    )
+    state = runner.run_once()
+    ema_symbols = {item["symbol"] for item in state["recentSignals"] if item["strategy"] == "ema_trend_x10"}
+    assert ema_symbols == {"BTCUSDT", "ETHUSDT"}
+    assert "SOLUSDT" not in ema_symbols
+    assert set(seen) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}

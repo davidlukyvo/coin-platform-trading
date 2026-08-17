@@ -16,7 +16,8 @@ ROOT = Path(os.getenv("SILVER_ROOT", "/data/silver"))
 SOURCES = parse_sources(os.getenv(
     "SILVER_QUALITY_SOURCES",
     "binance:spot:websocket:BTCUSDT:kline_1m;binance:spot:websocket:ETHUSDT:kline_1m;"
-    "bingx:spot:websocket:BTC-USDT:kline_1min;bingx:spot:websocket:ETH-USDT:kline_1min",
+    "binance:spot:websocket:SOLUSDT:kline_1m;bingx:spot:websocket:BTC-USDT:kline_1min;"
+    "bingx:spot:websocket:ETH-USDT:kline_1min;bingx:spot:websocket:SOL-USDT:kline_1min",
 ))
 INTERVAL = int(os.getenv("SILVER_QUALITY_INTERVAL_SECONDS", "300"))
 WARNING_LAG = int(os.getenv("SILVER_QUALITY_WARNING_LAG_SECONDS", "1800"))
