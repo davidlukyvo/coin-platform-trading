@@ -56,7 +56,7 @@ config = FuturesConfig(
     ema_gate_persistence_bars=number("FUTURES_EMA_GATE_PERSISTENCE_BARS", 3, int),
     ema_gate_min_separation_bps=number("FUTURES_EMA_GATE_MIN_SEPARATION_BPS", 5),
     ema_gate_min_slope_bps=number("FUTURES_EMA_GATE_MIN_SLOPE_BPS", 2),
-    ema_gate_max_extension_bps=number("FUTURES_EMA_GATE_MAX_EXTENSION_BPS", 50),
+    ema_gate_max_extension_bps=number("FUTURES_EMA_GATE_MAX_EXTENSION_BPS", 75),
     ema_gate_min_net_rr=number("FUTURES_EMA_GATE_MIN_NET_RR", 1.5),
 )
 def symbols(name: str, fallback: str) -> tuple[str, ...]:

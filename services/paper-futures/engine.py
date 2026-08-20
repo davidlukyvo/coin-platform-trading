@@ -33,7 +33,7 @@ class FuturesConfig:
     ema_gate_persistence_bars: int = 3
     ema_gate_min_separation_bps: float = 5.0
     ema_gate_min_slope_bps: float = 2.0
-    ema_gate_max_extension_bps: float = 50.0
+    ema_gate_max_extension_bps: float = 75.0
     ema_gate_min_net_rr: float = 1.5
 
 
@@ -104,7 +104,7 @@ def ema_entry_gate_v2(frame: pd.DataFrame, config: FuturesConfig) -> tuple[bool,
     if separation_bps < config.ema_gate_min_separation_bps: return False, "ema_separation", features
     if directional_slope_bps < config.ema_gate_min_slope_bps: return False, "ema_slope", features
     if extension_bps > config.ema_gate_max_extension_bps: return False, "ema_extension", features
-    if net_rr < config.ema_gate_min_net_rr: return False, "net_rr_after_costs", features
+    if net_rr + 1e-12 < config.ema_gate_min_net_rr: return False, "net_rr_after_costs", features
     return True, "ema_gate_v2_pass", features
 
 
@@ -295,16 +295,19 @@ class FuturesEngine:
                 if self.journal.processed(signal_id): continue
                 current = self.journal.position(strategy, symbol); decision, reason = "HOLD", source_reason
                 if time.time() - market_time > self.config.max_market_age_seconds: decision, reason = "REJECTED", "stale_market_data"
+                elif strategy == "ema_trend_x10" and not self.config.ema_entry_enabled:
+                    if current and current["side"] == direction:
+                        decision, reason = "HOLD", "position_already_aligned"
+                    else:
+                        if current: self._close(strategy, symbol, price, "CLOSE", "signal_flip")
+                        decision, reason = "REJECTED", f"strategy_research_lock:{source_reason}"
                 elif not actionable: decision, reason = "WAIT", source_reason
                 elif current and current["side"] == direction: decision, reason = "HOLD", "position_already_aligned"
                 else:
                     if current: self._close(strategy, symbol, price, "CLOSE", "signal_flip")
-                    if strategy == "ema_trend_x10" and not self.config.ema_entry_enabled:
-                        decision, reason = "REJECTED", f"strategy_research_lock:{source_reason}"
-                    else:
-                        allowed, reason = self._allowed(strategy, prices)
-                        if allowed: self._open(strategy, symbol, direction, price, stop, target); decision = "ALLOWED"
-                        else: decision = "REJECTED"
+                    allowed, reason = self._allowed(strategy, prices)
+                    if allowed: self._open(strategy, symbol, direction, price, stop, target); decision = "ALLOWED"
+                    else: decision = "REJECTED"
                 with self.journal.db:
                     self.journal.db.execute("INSERT INTO signals VALUES(?,?,?,?,?,?,?)", (signal_id, time.time(), strategy, symbol, direction, decision, reason))
         accounts = []
