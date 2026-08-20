@@ -17,7 +17,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "# PAPER FUTURES · TRADER COMMAND CENTER\n**EMA vs Wyckoff** · x10 ISOLATED · PAPER ONLY · NO LIVE EXECUTION  \nNet PnL includes **0.05% taker fee per fill** + **0.10% sell-side PIT stress** · Funding: **NOT INSTRUMENTED**"
+        "content": "# PAPER FUTURES · TRADER COMMAND CENTER\n**Wyckoff x10: PAPER** · **EMA: RESEARCH ONLY / NEW ENTRIES LOCKED** · NO LIVE EXECUTION  \nNet PnL includes **0.05% taker fee per fill** + **0.10% sell-side PIT stress** · Funding: **NOT INSTRUMENTED**"
       }
     },
     {
@@ -1183,7 +1183,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "### BOT ACTIVE · PAPER\nLive execution: **OFF**  \nLeverage: **x10 isolated**  \nFunding: **NOT INSTRUMENTED**"
+        "content": "### SAFETY BOUNDARY\nLive execution: **OFF**  \nWyckoff: **PAPER x10 isolated**  \nEMA opens: **RESEARCH LOCKED** · Gate: **ema_entry_gate_v2**  \nRisk-reducing exits remain enabled  \nFunding: **NOT INSTRUMENTED**"
       }
     },
     {
@@ -1383,5 +1383,5 @@
   "timezone": "browser",
   "title": "Paper Futures Trader — EMA vs Wyckoff",
   "uid": "paper-futures-x10",
-  "version": 9
+  "version": 10
 }

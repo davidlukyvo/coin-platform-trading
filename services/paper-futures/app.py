@@ -39,6 +39,10 @@ state = {"healthy": False, "error": None}
 def number(name, default, cast=float): return cast(os.getenv(name, str(default)))
 
 
+def boolean(name: str, default: bool) -> bool:
+    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
 config = FuturesConfig(
     leverage=number("FUTURES_LEVERAGE", 10), starting_equity=number("FUTURES_STARTING_EQUITY", 10000),
     margin_per_trade=number("FUTURES_MARGIN_PER_TRADE", 100), fee_bps=number("FUTURES_FEE_BPS", 5),
@@ -48,6 +52,12 @@ config = FuturesConfig(
     max_gross_notional=number("FUTURES_MAX_GROSS_NOTIONAL", 2000), max_daily_loss=number("FUTURES_MAX_DAILY_LOSS", 100),
     max_drawdown_fraction=number("FUTURES_MAX_DRAWDOWN_FRACTION", 0.05), max_trades_per_day=number("FUTURES_MAX_TRADES_PER_DAY", 30, int),
     max_market_age_seconds=number("FUTURES_MAX_MARKET_AGE_SECONDS", 3900, int),
+    ema_entry_enabled=boolean("FUTURES_EMA_ENTRY_ENABLED", False),
+    ema_gate_persistence_bars=number("FUTURES_EMA_GATE_PERSISTENCE_BARS", 3, int),
+    ema_gate_min_separation_bps=number("FUTURES_EMA_GATE_MIN_SEPARATION_BPS", 5),
+    ema_gate_min_slope_bps=number("FUTURES_EMA_GATE_MIN_SLOPE_BPS", 2),
+    ema_gate_max_extension_bps=number("FUTURES_EMA_GATE_MAX_EXTENSION_BPS", 50),
+    ema_gate_min_net_rr=number("FUTURES_EMA_GATE_MIN_NET_RR", 1.5),
 )
 def symbols(name: str, fallback: str) -> tuple[str, ...]:
     return tuple(x.strip().upper() for x in os.getenv(name, fallback).split(",") if x.strip())
@@ -152,7 +162,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/metrics": body, code, kind = generate_latest(), 200, "text/plain"
         elif self.path == "/healthz":
             body = json.dumps({"status": "healthy" if state["healthy"] else "unhealthy", "mode": "PAPER_FUTURES_ONLY",
-                               "liveTrading": False, "leverage": 10, "marginMode": "ISOLATED", "error": state["error"]}).encode()
+                               "liveTrading": False, "leverage": 10, "marginMode": "ISOLATED",
+                               "emaEntryMode": "PAPER" if config.ema_entry_enabled else "RESEARCH_ONLY",
+                               "emaEntryGateVersion": "ema_entry_gate_v2", "error": state["error"]}).encode()
             code, kind = (200 if state["healthy"] else 503), "application/json"
         else: body, code, kind = b"not found", 404, "text/plain"
         self.send_response(code); self.send_header("Content-Type", kind); self.end_headers(); self.wfile.write(body)
