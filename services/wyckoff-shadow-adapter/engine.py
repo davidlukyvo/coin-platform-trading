@@ -59,6 +59,16 @@ def resample_closed(frame: pd.DataFrame, rule: str) -> pd.DataFrame:
     return result
 
 
+def multitimeframe_readiness(minutes: pd.DataFrame) -> tuple[bool, dict[str, int]]:
+    """Check complete resampled bars before evaluation without treating warm-up as an error."""
+    counts = {
+        rule: len(resample_closed(minutes, rule))
+        for rule in ("5min", "15min", "1h")
+    }
+    ready = counts["5min"] >= 30 and counts["15min"] >= 40 and counts["1h"] >= 30
+    return ready, counts
+
+
 def atr(frame: pd.DataFrame, period: int = 14) -> pd.Series:
     previous = frame["close"].shift(1)
     ranges = pd.concat([
@@ -346,12 +356,15 @@ class WyckoffShadowAdapter:
                 })
                 continue
             closed_5m = resample_closed(minutes, "5min")
-            if closed_5m.empty or len(minutes) < 1800:
+            multitimeframe_ready, timeframe_bars = multitimeframe_readiness(minutes)
+            if len(minutes) < 1800 or not multitimeframe_ready:
                 scheduler_state.append({
-                    "symbol": symbol, "status": "WARMING_UP", "reason": "insufficient_closed_history",
+                    "symbol": symbol, "status": "WARMING_UP",
+                    "reason": "insufficient_complete_multitimeframe_history",
                     "processedBars": 0, "backlogBars": 0, "missingResearchBars": 0,
                     "processingLagSeconds": 0.0, "watermark": None,
                     "availableMinuteBars": len(minutes), "requiredMinuteBars": 1800,
+                    "availableTimeframeBars": timeframe_bars,
                 })
                 continue
             watermark = self.journal.last_market_time(symbol)
@@ -367,7 +380,8 @@ class WyckoffShadowAdapter:
             for candidate in available.head(self.max_catchup_bars).itertuples(index=False):
                 candidate_close = pd.Timestamp(candidate.close_time)
                 event_minutes = minutes[pd.to_datetime(minutes["close_time"], utc=True) <= candidate_close]
-                if len(event_minutes) < 1800:
+                candidate_ready, _ = multitimeframe_readiness(event_minutes)
+                if len(event_minutes) < 1800 or not candidate_ready:
                     continue
                 signal = evaluate(event_minutes, self.exchange, symbol, self.thresholds,
                                   now=candidate_close.timestamp())
