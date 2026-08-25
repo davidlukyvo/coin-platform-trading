@@ -28,7 +28,7 @@ WARMUP = Gauge("wyckoff_symbol_warmup_minute_bars", "Closed 1m bars available du
 PROCESSING_LAG = Gauge("wyckoff_scheduler_processing_lag_seconds", "Age of latest complete 5m source bar", ["symbol"])
 PROCESSED = Counter("wyckoff_scheduler_processed_bars_total", "Closed 5m bars evaluated in event-time order", ["symbol"])
 ERRORS = Counter("wyckoff_adapter_errors_total", "Wyckoff adapter cycle errors", ["type"])
-state = {"healthy": False, "error": None, "last_success": 0.0}
+state = {"healthy": False, "error": None, "last_success": 0.0, "projection": {}}
 thresholds = Thresholds(
     max_market_age_seconds=int(os.getenv("WYCKOFF_MAX_MARKET_AGE_SECONDS", "3900")),
     min_rr=float(os.getenv("WYCKOFF_MIN_RR", "2.0")), ready_score=int(os.getenv("WYCKOFF_READY_SCORE", "70")),
@@ -66,7 +66,7 @@ def execute():
             PROCESSING_LAG.labels(item["symbol"]).set(item["processingLagSeconds"])
             if item["processedBars"]:
                 PROCESSED.labels(item["symbol"]).inc(item["processedBars"])
-        state.update(healthy=True, error=None, last_success=time.time())
+        state.update(healthy=True, error=None, last_success=time.time(), projection=result)
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)
 
@@ -79,6 +79,8 @@ def scheduler():
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/metrics": body, code, kind = generate_latest(), 200, "text/plain"
+        elif self.path == "/projection":
+            body, code, kind = json.dumps(state["projection"]).encode(), 200, "application/json"
         elif self.path == "/healthz":
             body = json.dumps({"status": "healthy" if state["healthy"] else "unhealthy", "mode": "SHADOW_ONLY",
                                "live_trading": False, "error": state["error"]}).encode()

@@ -2,6 +2,7 @@ import hashlib
 import json
 import sqlite3
 import time
+import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,10 +13,6 @@ class FusionConfig:
     max_market_age_seconds: int = 3900
     continuity_bars: int = 12
     liquidity_soak_status: str = "FAIL"
-
-
-def _connect_read_only(path: Path) -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
 
 
 def _iso_epoch(value: str) -> float:
@@ -102,43 +99,36 @@ class FusionJournal:
 
 
 class EvidenceFusionAdapter:
-    def __init__(self, wyckoff_db: Path, liquidity_db: Path, output_root: Path,
+    def __init__(self, wyckoff_url: str, liquidity_url: str, output_root: Path,
                  symbols: tuple[str, ...], config: FusionConfig):
-        self.wyckoff_db, self.liquidity_db = wyckoff_db, liquidity_db
+        self.wyckoff_url, self.liquidity_url = wyckoff_url, liquidity_url
         self.symbols, self.config = symbols, config
         self.journal = FusionJournal(output_root / "evidence-fusion.db")
 
-    def _latest_wyckoff(self, symbol: str) -> dict | None:
-        with _connect_read_only(self.wyckoff_db) as connection:
-            row = connection.execute("""SELECT signal_id,market_time,bar_id,direction,decision,reason,
-                execution_actionable,execution_gate_passed FROM signals WHERE symbol=?
-                ORDER BY market_time DESC LIMIT 1""", (symbol,)).fetchone()
-            times = [x[0] for x in connection.execute("""SELECT market_time FROM research_observations
-                WHERE symbol=? ORDER BY market_time DESC LIMIT ?""", (symbol, self.config.continuity_bars))]
-        if not row:
-            return None
-        times.reverse()
-        return {"signalId": row[0], "marketTime": row[1], "barId": row[2], "symbol": symbol,
-                "direction": row[3], "decision": row[4], "reason": row[5],
-                "executionActionable": bool(row[6]), "executionGatePassed": bool(row[7]),
-                "liveTrading": False, "continuityOk": _continuous(times)}
+    @staticmethod
+    def _projection(url: str) -> dict:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            return json.load(response)
 
-    def _latest_liquidity(self, symbol: str) -> dict | None:
-        with _connect_read_only(self.liquidity_db) as connection:
-            rows = connection.execute("""SELECT market_time,evidence_json FROM observations WHERE symbol=?
-                ORDER BY market_time DESC LIMIT ?""", (symbol, self.config.continuity_bars)).fetchall()
-        if not rows:
+    @staticmethod
+    def _latest(projection: dict, symbol: str, identity: str) -> dict | None:
+        scheduler = next((x for x in projection.get("scheduler", []) if x.get("symbol") == symbol), {})
+        item = next((x for x in projection.get("signals", []) if x.get("symbol") == symbol), None)
+        if not item:
             return None
-        evidence = json.loads(rows[0][1])
-        times = [row[0] for row in reversed(rows)]
-        evidence["continuityOk"] = _continuous(times)
-        return evidence
+        item = dict(item)
+        item[identity] = item.get(identity) or item.get("signalId") or item.get("observationId")
+        item["continuityOk"] = scheduler.get("status") == "READY"
+        return item
 
     def run_once(self, now: float | None = None) -> dict:
         now = time.time() if now is None else now
+        wyckoff_projection = self._projection(self.wyckoff_url)
+        liquidity_projection = self._projection(self.liquidity_url)
         signals, scheduler = [], []
         for symbol in self.symbols:
-            wyckoff, liquidity = self._latest_wyckoff(symbol), self._latest_liquidity(symbol)
+            wyckoff = self._latest(wyckoff_projection, symbol, "signalId")
+            liquidity = self._latest(liquidity_projection, symbol, "observationId")
             if not wyckoff or not liquidity:
                 scheduler.append({"symbol": symbol, "status": "WARMING_UP", "reason": "source_missing"})
                 continue

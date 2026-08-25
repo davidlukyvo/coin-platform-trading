@@ -23,8 +23,8 @@ config = FusionConfig(
     liquidity_soak_status=os.getenv("LIQUIDITY_SOAK_STATUS", "FAIL").upper(),
 )
 adapter = EvidenceFusionAdapter(
-    Path(os.getenv("WYCKOFF_DB", "/data/wyckoff/signals.db")),
-    Path(os.getenv("LIQUIDITY_DB", "/data/liquidity/liquidity-structure.db")),
+    os.getenv("WYCKOFF_PROJECTION_URL", "http://wyckoff-shadow-adapter:8070/projection"),
+    os.getenv("LIQUIDITY_PROJECTION_URL", "http://liquidity-structure-adapter:8082/projection"),
     Path(os.getenv("FUSION_OUTPUT_ROOT", "/data/evidence-fusion")),
     tuple(x.strip().upper() for x in os.getenv("FUSION_SYMBOLS", "BTCUSDT,ETHUSDT,SOLUSDT").split(",") if x.strip()),
     config,

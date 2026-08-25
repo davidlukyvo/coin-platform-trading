@@ -9,7 +9,7 @@ The adapter combines closed-bar Wyckoff/VSA and Liquidity Structure research evi
 - Mode is always `SHADOW_ONLY`.
 - `liveTrading`, `executionActionable`, and `executionGatePassed` are hard-coded false.
 - The service has no Paper Futures mount, exchange credential, account API, or published host port.
-- Wyckoff and Liquidity SQLite journals are mounted read-only; only the fusion journal is writable.
+- Wyckoff and Liquidity projections are consumed over the private Compose network; only the fusion journal is mounted.
 - `LIQUIDITY_SOAK_STATUS` defaults to `FAIL`. Until a clean validation window is explicitly promoted to `PASS`, every otherwise-valid confluence is recorded as `REJECT_SHADOW/liquidity_soak_not_passed`.
 
 ## Fusion gates
@@ -27,7 +27,7 @@ An `ALLOW_SHADOW` result is research evidence only and is never an order.
 
 - Container healthy, restart 0, OOM false, UID 10011, read-only root filesystem.
 - No host port or credential mount.
-- Both input mounts are read-only and output is the only writable persistent mount.
+- No source database mounts; output is the only writable persistent mount.
 - Deterministic IDs and exactly-once journal rows.
 - All three symbols READY with current bar alignment.
 - Errors, unsafe flags, duplicates, and gaps remain zero during the validation window.

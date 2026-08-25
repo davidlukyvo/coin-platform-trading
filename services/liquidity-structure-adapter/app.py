@@ -20,7 +20,7 @@ DECISION = Gauge("liquidity_structure_decision_info", "Latest shadow decision",
 DIVERGENCE = Gauge("liquidity_structure_divergence_info", "Cross-asset divergence evidence",
                    ["symbol", "peer", "event", "direction"])
 PROCESSED = Counter("liquidity_structure_processed_bars_total", "Closed 5m bars journaled", ["symbol"])
-state = {"healthy": False, "error": None}
+state = {"healthy": False, "error": None, "projection": {}}
 limits = Thresholds(max_market_age_seconds=int(os.getenv("LIQUIDITY_MAX_MARKET_AGE_SECONDS", "3900")))
 adapter = LiquidityStructureAdapter(
     Path(os.getenv("SILVER_ROOT", "/data/silver")),
@@ -43,7 +43,8 @@ def execute():
                             signal["marketStructureShift"], signal["oteStatus"], signal["authorityReason"]).set(1)
             for evidence in signal["crossAssetDivergence"]:
                 DIVERGENCE.labels(signal["symbol"], evidence["peer"], evidence["event"], evidence["direction"]).set(1)
-        JOURNAL.set(result["journalRows"]); LAST.set(time.time()); state.update(healthy=True, error=None)
+        JOURNAL.set(result["journalRows"]); LAST.set(time.time())
+        state.update(healthy=True, error=None, projection=result)
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc(); state.update(healthy=False, error=type(exc).__name__)
 
@@ -56,6 +57,8 @@ def scheduler():
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/metrics": body, code, kind = generate_latest(), 200, "text/plain"
+        elif self.path == "/projection":
+            body, code, kind = json.dumps(state["projection"]).encode(), 200, "application/json"
         elif self.path == "/healthz":
             body = json.dumps({"status": "healthy" if state["healthy"] else "unhealthy", "mode": "SHADOW_ONLY",
                                "live_trading": False, "execution_actionable": False,
