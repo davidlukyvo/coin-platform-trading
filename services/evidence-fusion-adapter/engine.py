@@ -118,6 +118,9 @@ class EvidenceFusionAdapter:
             return None
         item = dict(item)
         item[identity] = item.get(identity) or item.get("signalId") or item.get("observationId")
+        if identity == "signalId":
+            item["decision"] = item.get("authorityDecision", item.get("decision", "WAIT"))
+            item["reason"] = item.get("authorityReason", item.get("reason", "unknown"))
         item["continuityOk"] = scheduler.get("status") == "READY"
         return item
 

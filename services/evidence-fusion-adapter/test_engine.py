@@ -1,4 +1,4 @@
-from engine import FusionConfig, fuse
+from engine import EvidenceFusionAdapter, FusionConfig, fuse
 
 
 def sources(**overrides):
@@ -45,3 +45,13 @@ def test_id_is_deterministic():
     first = fuse(wyckoff, liquidity, FusionConfig(), 1787616600)
     second = fuse(wyckoff, liquidity, FusionConfig(), 1787616600)
     assert first["observationId"] == second["observationId"]
+
+
+def test_wyckoff_projection_normalizes_authority_fields():
+    projection = {"signals": [{"symbol": "BTCUSDT", "signalId": "w1",
+                                "authorityDecision": "ALLOW_SHADOW", "authorityReason": "ready"}],
+                  "scheduler": [{"symbol": "BTCUSDT", "status": "READY"}]}
+    result = EvidenceFusionAdapter._latest(projection, "BTCUSDT", "signalId")
+    assert result["decision"] == "ALLOW_SHADOW"
+    assert result["reason"] == "ready"
+    assert result["continuityOk"]
