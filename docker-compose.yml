@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures /host/liquidity-structure
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures /host/liquidity-structure /host/evidence-fusion
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -27,6 +27,8 @@ services:
         chmod 700 /host/paper-futures
         chown -R 10010:10010 /host/liquidity-structure
         chmod 700 /host/liquidity-structure
+        chown -R 10011:10011 /host/evidence-fusion
+        chmod 700 /host/evidence-fusion
         test -w /host/bronze
         test -w /host/quarantine
         test -w /host/postgres
@@ -463,6 +465,50 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 384m
     cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  evidence-fusion-adapter:
+    build:
+      context: ./services/evidence-fusion-adapter
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      wyckoff-shadow-adapter:
+        condition: service_healthy
+      liquidity-structure-adapter:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      WYCKOFF_DB: /data/wyckoff/signals.db
+      LIQUIDITY_DB: /data/liquidity/liquidity-structure.db
+      FUSION_OUTPUT_ROOT: /data/evidence-fusion
+      FUSION_SYMBOLS: ${FUSION_SYMBOLS:-BTCUSDT,ETHUSDT,SOLUSDT}
+      FUSION_INTERVAL_SECONDS: ${FUSION_INTERVAL_SECONDS:-60}
+      FUSION_MAX_MARKET_AGE_SECONDS: ${FUSION_MAX_MARKET_AGE_SECONDS:-3900}
+      FUSION_CONTINUITY_BARS: ${FUSION_CONTINUITY_BARS:-12}
+      LIQUIDITY_SOAK_STATUS: ${LIQUIDITY_SOAK_STATUS:-FAIL}
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-signals:/data/wyckoff:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/liquidity-structure:/data/liquidity:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/evidence-fusion:/data/evidence-fusion
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 192m
+    cpus: 0.25
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}
