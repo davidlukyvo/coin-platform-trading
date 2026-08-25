@@ -29,6 +29,12 @@ class FuturesConfig:
     max_drawdown_fraction: float = 0.05
     max_trades_per_day: int = 30
     max_market_age_seconds: int = 3900
+    ema_entry_enabled: bool = True
+    ema_gate_persistence_bars: int = 3
+    ema_gate_min_separation_bps: float = 5.0
+    ema_gate_min_slope_bps: float = 2.0
+    ema_gate_max_extension_bps: float = 75.0
+    ema_gate_min_net_rr: float = 1.5
 
 
 def liquidation_price(entry: float, side: str, leverage: float, maintenance: float) -> float:
@@ -64,6 +70,42 @@ def ema_direction(frame: pd.DataFrame) -> tuple[str, float, float, str]:
     slow = frame["close"].ewm(span=26, adjust=False).mean().iloc[-1]
     return ("LONG" if fast > slow else "SHORT", float(frame["close"].iloc[-1]),
             pd.Timestamp(frame["close_time"].iloc[-1]).timestamp(), pd.Timestamp(frame["open_time"].iloc[-1]).isoformat())
+
+
+def ema_entry_gate_v2(frame: pd.DataFrame, config: FuturesConfig) -> tuple[bool, str, dict[str, float]]:
+    """Cost-aware closed-bar filter used for EMA research decisions; it never places an order itself."""
+    if len(frame) < 30:
+        return False, "insufficient_bars", {}
+    close = frame["close"].astype(float)
+    fast = close.ewm(span=12, adjust=False).mean()
+    slow = close.ewm(span=26, adjust=False).mean()
+    price = float(close.iloc[-1])
+    direction = 1.0 if fast.iloc[-1] > slow.iloc[-1] else -1.0
+    persistence = max(1, int(config.ema_gate_persistence_bars))
+    recent_spread = (fast - slow).tail(persistence)
+    persistent = bool(((recent_spread * direction) > 0).all())
+    separation_bps = abs(float(fast.iloc[-1] - slow.iloc[-1])) / price * 10000
+    slope_index = max(0, len(fast) - 1 - persistence)
+    directional_slope_bps = direction * float(fast.iloc[-1] - fast.iloc[slope_index]) / price * 10000
+    extension_bps = abs(price - float(fast.iloc[-1])) / price * 10000
+    notional = config.margin_per_trade * config.leverage
+    round_trip_fees = notional * config.fee_bps / 10000 * 2
+    sell_side_tax = notional * config.personal_income_tax_bps / 10000
+    gross_risk = notional * config.ema_stop_fraction
+    gross_reward = notional * config.ema_target_fraction
+    net_risk = gross_risk + round_trip_fees + sell_side_tax
+    net_reward = max(0.0, gross_reward - round_trip_fees - sell_side_tax)
+    net_rr = net_reward / net_risk if net_risk else 0.0
+    features = {
+        "separationBps": separation_bps, "directionalSlopeBps": directional_slope_bps,
+        "extensionBps": extension_bps, "netRiskReward": net_rr,
+    }
+    if not persistent: return False, "ema_persistence", features
+    if separation_bps < config.ema_gate_min_separation_bps: return False, "ema_separation", features
+    if directional_slope_bps < config.ema_gate_min_slope_bps: return False, "ema_slope", features
+    if extension_bps > config.ema_gate_max_extension_bps: return False, "ema_extension", features
+    if net_rr + 1e-12 < config.ema_gate_min_net_rr: return False, "net_rr_after_costs", features
+    return True, "ema_gate_v2_pass", features
 
 
 class FuturesJournal:
@@ -241,7 +283,8 @@ class FuturesEngine:
                     item = ema[symbol]; direction, bar, market_time = item["direction"], item["bar"], item["market_time"]
                     stop = price * (1 - self.config.ema_stop_fraction if direction == "LONG" else 1 + self.config.ema_stop_fraction)
                     target = price * (1 + self.config.ema_target_fraction if direction == "LONG" else 1 - self.config.ema_target_fraction)
-                    actionable, source_reason = True, "ema_direction"
+                    gate_passed, gate_reason, _ = ema_entry_gate_v2(frames[symbol], self.config)
+                    actionable, source_reason = gate_passed, gate_reason
                 else:
                     item = wyckoff.get(symbol, {}); direction = item.get("direction", "NONE"); bar = item.get("barId", "missing")
                     market_time = datetime.fromisoformat(item.get("marketTime", "1970-01-01T00:00:00+00:00")).timestamp()
@@ -252,6 +295,12 @@ class FuturesEngine:
                 if self.journal.processed(signal_id): continue
                 current = self.journal.position(strategy, symbol); decision, reason = "HOLD", source_reason
                 if time.time() - market_time > self.config.max_market_age_seconds: decision, reason = "REJECTED", "stale_market_data"
+                elif strategy == "ema_trend_x10" and not self.config.ema_entry_enabled:
+                    if current and current["side"] == direction:
+                        decision, reason = "HOLD", "position_already_aligned"
+                    else:
+                        if current: self._close(strategy, symbol, price, "CLOSE", "signal_flip")
+                        decision, reason = "REJECTED", f"strategy_research_lock:{source_reason}"
                 elif not actionable: decision, reason = "WAIT", source_reason
                 elif current and current["side"] == direction: decision, reason = "HOLD", "position_already_aligned"
                 else:
@@ -279,6 +328,8 @@ class FuturesEngine:
         state = {"mode": "PAPER_FUTURES_ONLY", "liveTrading": False, "executionActionable": False,
                  "leverage": self.config.leverage, "marginMode": "ISOLATED", "fundingModel": "NOT_INSTRUMENTED",
                  "taxModel": "VIETNAM_DIGITAL_ASSET_SELL_SIDE_STRESS_V1",
+                 "emaEntryMode": "PAPER" if self.config.ema_entry_enabled else "RESEARCH_ONLY",
+                 "emaEntryGateVersion": "ema_entry_gate_v2",
                  "updatedAt": datetime.now(UTC).isoformat(), "config": asdict(self.config), "accounts": accounts,
                  "recentSignals": self.journal.recent("signals"), "recentFills": self.journal.recent("fills"),
                  "recentClosedTrades": self.journal.recent_closed_trades()}

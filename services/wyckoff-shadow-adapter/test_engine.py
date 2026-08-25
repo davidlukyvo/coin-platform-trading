@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from engine import (SignalJournal, Thresholds, WyckoffShadowAdapter, classify_market_phase,
-                    detect_vsa_events, evaluate, raw_event, resample_closed)
+                    detect_vsa_events, evaluate, multitimeframe_readiness, raw_event, resample_closed)
 
 
 def minute_frame(periods=5000, start="2026-08-01T00:00:00Z"):
@@ -27,6 +27,13 @@ def test_resample_only_returns_complete_bars():
     result = resample_closed(frame, "5min")
     assert len(result) == 2
     assert set(result["bars"]) == {5}
+
+
+def test_readiness_requires_complete_resampled_timeframes():
+    frame = minute_frame(periods=1800, start="2026-08-01T00:01:00Z")
+    ready, counts = multitimeframe_readiness(frame)
+    assert ready is False
+    assert counts["1h"] == 29
 
 
 def test_detects_spring_and_upthrust():
@@ -135,3 +142,18 @@ def test_new_symbol_warms_up_without_interrupting_ready_symbols(tmp_path, monkey
     assert by_symbol["SOLUSDT"]["status"] == "WARMING_UP"
     assert by_symbol["SOLUSDT"]["availableMinuteBars"] == 120
     assert result["researchJournalRows"] == 1
+
+
+def test_raw_minute_threshold_without_complete_hourly_bars_stays_warming_up(tmp_path, monkeypatch):
+    frame = minute_frame(periods=1800, start="2026-08-01T00:01:00Z")
+    monkeypatch.setattr("engine.load_closed_minutes", lambda *_args, **_kwargs: frame.copy())
+    adapter = WyckoffShadowAdapter(tmp_path, tmp_path / "out", "binance", ("SOLUSDT",), Thresholds())
+
+    result = adapter.run_once()
+
+    state = result["scheduler"][0]
+    assert state["status"] == "WARMING_UP"
+    assert state["reason"] == "insufficient_complete_multitimeframe_history"
+    assert state["availableMinuteBars"] == 1800
+    assert state["availableTimeframeBars"]["1h"] == 29
+    assert result["researchJournalRows"] == 0

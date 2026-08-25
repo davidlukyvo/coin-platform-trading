@@ -5,7 +5,8 @@ from pathlib import Path
 import pandas as pd
 
 import engine
-from engine import FuturesConfig, FuturesEngine, liquidation_price, position_pnl, transaction_tax
+from engine import (FuturesConfig, FuturesEngine, ema_entry_gate_v2, liquidation_price,
+                    position_pnl, transaction_tax)
 
 
 def bars(up=True):
@@ -35,6 +36,30 @@ def test_sell_side_personal_income_tax_stress_model():
     assert transaction_tax("OPEN", "SHORT", 1000, 10) == 1
     assert transaction_tax("CLOSE", "LONG", 1000, 10) == 1
     assert transaction_tax("LIQUIDATION", "LONG", 1000, 10) == 1
+
+
+def test_ema_entry_gate_v2_quantifies_closed_bar_quality_and_costs():
+    allowed, reason, features = ema_entry_gate_v2(bars(True), FuturesConfig())
+    assert allowed is True
+    assert reason == "ema_gate_v2_pass"
+    assert features["separationBps"] > 0
+    assert features["directionalSlopeBps"] > 0
+    assert round(features["netRiskReward"], 6) == 1.5
+
+
+def test_ema_research_lock_records_decision_without_opening(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: bars(True))
+    source = tmp_path / "wyckoff"; wyckoff(source)
+    runner = FuturesEngine(Path("unused"), source, tmp_path / "data", "binance", ("BTCUSDT",),
+                           FuturesConfig(ema_entry_enabled=False))
+    state = runner.run_once()
+    account = next(x for x in state["accounts"] if x["strategy"] == "ema_trend_x10")
+    signal = next(x for x in state["recentSignals"] if x["strategy"] == "ema_trend_x10")
+    assert account["positions"] == []
+    assert account["summary"]["fills"] == 0
+    assert signal["decision"] == "REJECTED"
+    assert signal["reason"] == "strategy_research_lock:ema_gate_v2_pass"
+    assert state["emaEntryMode"] == "RESEARCH_ONLY"
 
 
 def test_long_round_trip_reports_gross_fees_tax_and_net(tmp_path):

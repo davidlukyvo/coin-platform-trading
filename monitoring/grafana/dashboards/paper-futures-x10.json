@@ -1,47 +1,1387 @@
 {
-  "annotations":{"list":[]},"editable":false,"graphTooltip":1,"id":null,
-  "panels":[
-    {"type":"text","title":"","gridPos":{"h":3,"w":24,"x":0,"y":0},"options":{"mode":"markdown","content":"# PAPER FUTURES · TRADER COMMAND CENTER\n**EMA vs Wyckoff** · x10 ISOLATED · PAPER ONLY · NO LIVE EXECUTION  \nNet PnL includes **0.05% taker fee per fill** + **0.10% sell-side PIT stress** · Funding: **NOT INSTRUMENTED**"}},
-
-    {"type":"row","title":"EXECUTIVE OVERVIEW","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":3},"panels":[]},
-    {"type":"stat","title":"EMA EQUITY","gridPos":{"h":5,"w":4,"x":0,"y":4},"targets":[{"expr":"paper_futures_equity{strategy=\"ema_trend_x10\"}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"color":{"mode":"fixedColor","fixedColor":"text"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"area","textMode":"value"}},
-    {"type":"stat","title":"OPEN PnL","description":"Estimated net liquidation PnL after modeled closing taker fee and sell-side PIT stress. Funding excluded.","gridPos":{"h":5,"w":5,"x":4,"y":4},"targets":[{"expr":"sum(paper_futures_unrealized_pnl{strategy=\"ema_trend_x10\"})","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"green","value":0}]}},"overrides":[]},"options":{"colorMode":"value","graphMode":"area","textMode":"value"}},
-    {"type":"stat","title":"AVAILABLE CAPITAL","description":"Equity minus isolated margin currently in use.","gridPos":{"h":5,"w":4,"x":9,"y":4},"targets":[{"expr":"paper_futures_capital{strategy=\"ema_trend_x10\",metric=\"available_capital\"}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"color":{"mode":"fixedColor","fixedColor":"text"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"gauge","title":"RISK USED","description":"Current gross notional against configured portfolio limit.","gridPos":{"h":5,"w":4,"x":13,"y":4},"targets":[{"expr":"paper_futures_risk_utilization_fraction{strategy=\"ema_trend_x10\"}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit","min":0,"max":1,"decimals":1,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":0.7},{"color":"red","value":0.95}]}},"overrides":[]}},
-    {"type":"stat","title":"FEES + TAX","description":"Cumulative modeled trading fees and PIT stress. Historical rows before this model retain tax=0.","gridPos":{"h":5,"w":3,"x":17,"y":4},"targets":[{"expr":"sum(paper_futures_strategy_summary{metric=~\"fees|taxes\"})","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"color":{"mode":"fixedColor","fixedColor":"orange"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"WYCKOFF PnL","description":"Separate 10,000 USDT virtual account; never summed with EMA.","gridPos":{"h":5,"w":4,"x":20,"y":4},"targets":[{"expr":"paper_futures_equity{strategy=\"wyckoff_x10\"}-10000","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"green","value":0}]}},"overrides":[]},"options":{"colorMode":"value","graphMode":"area","textMode":"value"}},
-
-    {"type":"row","title":"SYSTEM DECISION ENGINE","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":9},"panels":[]},
-    {"type":"table","title":"WHAT THE SYSTEM IS DECIDING","description":"EMA evaluates BTC/ETH. Wyckoff x10 evaluates BTC/ETH/SOL in paper only; warm-up produces WAIT and can never open a position.","gridPos":{"h":8,"w":14,"x":0,"y":10},"targets":[{"expr":"paper_futures_latest_signal_info","format":"table","instant":true,"refId":"A"}],"transformations":[{"id":"organize","options":{"excludeByName":{"Time":true,"Value":true,"__name__":true,"instance":true,"job":true},"indexByName":{"strategy":0,"symbol":1,"direction":2,"decision":3,"reason":4},"renameByName":{"strategy":"Strategy","symbol":"Asset","direction":"Bias","decision":"Decision","reason":"Why"}}}],"fieldConfig":{"defaults":{},"overrides":[]},"options":{"showHeader":true,"cellHeight":"lg"}},
-    {"type":"bargauge","title":"WYCKOFF SIGNAL SCORE","description":"Real rule score. EMA confidence is deliberately not fabricated.","gridPos":{"h":8,"w":5,"x":14,"y":10},"targets":[{"expr":"wyckoff_adapter_score","legendFormat":"{{symbol}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100,"decimals":0,"thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":50},{"color":"green","value":70}]}},"overrides":[]},"options":{"displayMode":"gradient","orientation":"horizontal","showUnfilled":true}},
-    {"type":"stat","title":"NEXT EVALUATION","gridPos":{"h":4,"w":5,"x":19,"y":10},"targets":[{"expr":"clamp_min(60-(time()-paper_futures_last_success_unixtime),0)","refId":"A"}],"fieldConfig":{"defaults":{"unit":"s","decimals":0,"color":{"mode":"fixedColor","fixedColor":"blue"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"DATA LIVE","gridPos":{"h":4,"w":5,"x":19,"y":14},"targets":[{"expr":"time()-paper_futures_last_success_unixtime","refId":"A"}],"fieldConfig":{"defaults":{"unit":"s","decimals":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":120},{"color":"red","value":300}]}},"overrides":[]},"options":{"colorMode":"background","graphMode":"none","textMode":"value"}},
-
-    {"type":"row","title":"OPEN POSITIONS","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":18},"panels":[]},
-    {"type":"table","title":"LIVE PAPER POSITIONS","gridPos":{"h":9,"w":18,"x":0,"y":19},"targets":[{"expr":"paper_futures_position_info","format":"table","instant":true,"refId":"A"},{"expr":"paper_futures_position_price{level=\"entry\"}","format":"table","instant":true,"refId":"B"},{"expr":"paper_futures_position_price{level=\"mark\"}","format":"table","instant":true,"refId":"C"},{"expr":"paper_futures_unrealized_pnl","format":"table","instant":true,"refId":"D"},{"expr":"paper_futures_position_progress_percent{metric=\"roe\"}","format":"table","instant":true,"refId":"E"}],"transformations":[{"id":"merge","options":{}},{"id":"organize","options":{"excludeByName":{"Time":true,"Value #A":true,"__name__":true,"instance":true,"job":true,"level":true,"metric":true},"indexByName":{"symbol":0,"side":1,"Value #B":2,"Value #C":3,"Value #D":4,"Value #E":5,"status":6,"strategy":7},"renameByName":{"symbol":"Asset","side":"Side","Value #B":"Entry","Value #C":"Current","Value #D":"PnL","Value #E":"ROE %","status":"Status","strategy":"Strategy"}}}],"fieldConfig":{"defaults":{"decimals":3},"overrides":[{"matcher":{"id":"byName","options":"PnL"},"properties":[{"id":"unit","value":"currencyUSD"},{"id":"thresholds","value":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"green","value":0}]}},{"id":"custom.cellOptions","value":{"type":"color-text"}}]},{"matcher":{"id":"byName","options":"ROE %"},"properties":[{"id":"unit","value":"percent"}]}]},"options":{"showHeader":true,"cellHeight":"lg"}},
-    {"type":"stat","title":"OPEN TRADES","gridPos":{"h":4,"w":6,"x":18,"y":19},"targets":[{"expr":"sum(paper_futures_positions)","refId":"A"}],"fieldConfig":{"defaults":{"decimals":0,"color":{"mode":"fixedColor","fixedColor":"blue"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"GROSS NOTIONAL","gridPos":{"h":5,"w":6,"x":18,"y":23},"targets":[{"expr":"sum(paper_futures_gross_notional)","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":0,"color":{"mode":"fixedColor","fixedColor":"text"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-
-    {"type":"row","title":"EXIT PLAN & CAPITAL AT RISK","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":28},"panels":[]},
-    {"type":"stat","title":"BTCUSDT · CURRENT EXIT PLAN","description":"Instant snapshot only; historical positions are deliberately excluded.","gridPos":{"h":9,"w":6,"x":0,"y":29},"targets":[{"expr":"paper_futures_position_price{symbol=\"BTCUSDT\",level=~\"entry|mark|target|stop\"}","legendFormat":"{{side}} {{level}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"noValue":"NO OPEN POSITION"},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value_and_name","orientation":"horizontal","wideLayout":true}},
-    {"type":"stat","title":"ETHUSDT · CURRENT EXIT PLAN","description":"Instant snapshot only; historical positions are deliberately excluded.","gridPos":{"h":9,"w":6,"x":6,"y":29},"targets":[{"expr":"paper_futures_position_price{symbol=\"ETHUSDT\",level=~\"entry|mark|target|stop\"}","legendFormat":"{{side}} {{level}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":3,"noValue":"NO OPEN POSITION"},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value_and_name","orientation":"horizontal","wideLayout":true}},
-    {"type":"stat","title":"SOLUSDT · CURRENT EXIT PLAN","description":"Instant snapshot only; historical positions are deliberately excluded.","gridPos":{"h":9,"w":6,"x":12,"y":29},"targets":[{"expr":"paper_futures_position_price{symbol=\"SOLUSDT\",level=~\"entry|mark|target|stop\"}","legendFormat":"{{side}} {{level}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":4,"noValue":"NO OPEN POSITION"},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value_and_name","orientation":"horizontal","wideLayout":true}},
-    {"type":"bargauge","title":"PROGRESS TO EXIT","description":"Distance to TP/SL for open positions only. Empty means no open paper position.","gridPos":{"h":9,"w":6,"x":18,"y":29},"targets":[{"expr":"paper_futures_position_progress_percent{metric=~\"to_stop|to_target\"}","legendFormat":"{{symbol}} {{metric}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"unit":"percent","decimals":2,"min":0,"noValue":"NO OPEN POSITION","thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":0.5},{"color":"green","value":2}]}},"overrides":[]},"options":{"displayMode":"gradient","orientation":"horizontal","showUnfilled":true}},
-    {"type":"stat","title":"RISK / REWARD","description":"Calculated for open positions only.","gridPos":{"h":5,"w":6,"x":0,"y":38},"targets":[{"expr":"paper_futures_position_detail{metric=\"risk_reward\"}","legendFormat":"{{symbol}} {{side}}","instant":true,"refId":"A"}],"fieldConfig":{"defaults":{"decimals":2,"noValue":"NO OPEN POSITION","thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":1},{"color":"green","value":2}]}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value_and_name","orientation":"horizontal"}},
-    {"type":"stat","title":"MAXIMUM LOSS · ALL OPEN POSITIONS","description":"Total stop-loss exposure across EMA and Wyckoff, including estimated closing fee and sell-side PIT stress. Funding excluded.","gridPos":{"h":5,"w":6,"x":6,"y":38},"targets":[{"expr":"sum(paper_futures_capital{metric=\"maximum_loss\"})","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"color":{"mode":"fixedColor","fixedColor":"red"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"EXPECTED GAIN · ALL OPEN POSITIONS","description":"Total target gain across EMA and Wyckoff after estimated closing fee and sell-side PIT stress. Funding excluded.","gridPos":{"h":5,"w":6,"x":12,"y":38},"targets":[{"expr":"sum(paper_futures_capital{metric=\"expected_gain\"})","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"color":{"mode":"fixedColor","fixedColor":"green"}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"EMA DAILY LOSS BUFFER · 0 = RISK LOCKED","description":"Remaining EMA daily-loss allowance. Zero means new EMA entries are blocked by the risk engine; Wyckoff has a separate virtual account.","gridPos":{"h":5,"w":6,"x":18,"y":38},"targets":[{"expr":"paper_futures_capital{strategy=\"ema_trend_x10\",metric=\"daily_loss_remaining\"}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"currencyUSD","decimals":2,"thresholds":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"yellow","value":5},{"color":"green","value":15}]}},"overrides":[]},"options":{"colorMode":"value","graphMode":"none","textMode":"value"}},
-
-    {"type":"row","title":"RECENT COMPLETED TRADES · LAST 20","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":43},"panels":[]},
-    {"type":"table","title":"TRADE HISTORY · FULL COST PnL","description":"Joined by trade_id. Net PnL includes opening and closing taker fees plus modeled sell-side PIT stress; funding remains excluded. Rows before 2026-08-17 08:05 UTC are PRE-COST MODEL and intentionally retain historical gross/tax defaults.","gridPos":{"h":11,"w":24,"x":0,"y":44},"targets":[{"expr":"paper_futures_closed_trade_info","format":"table","instant":true,"refId":"A"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"entry_price\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"B"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"exit_price\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"C"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"gross_pnl\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"D"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"fee\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"E"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"tax\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"F"},{"expr":"sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"pnl\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)","format":"table","instant":true,"refId":"G"}],"transformations":[{"id":"merge","options":{}},{"id":"organize","options":{"excludeByName":{"Time":true,"Value #A":true,"__name__":true,"instance":true,"job":true,"trade_id":true},"indexByName":{"closed_at":0,"symbol":1,"side":2,"Value #B":3,"Value #C":4,"Value #D":5,"Value #E":6,"Value #F":7,"Value #G":8,"exit_reason":9,"strategy":10},"renameByName":{"closed_at":"Closed at","symbol":"Asset","side":"Side","Value #B":"Entry","Value #C":"Exit","Value #D":"Gross PnL","Value #E":"Trading fee","Value #F":"PIT stress","Value #G":"Net PnL","exit_reason":"Exit reason","strategy":"Strategy"}}}],"fieldConfig":{"defaults":{"decimals":3},"overrides":[{"matcher":{"id":"byName","options":"Entry"},"properties":[{"id":"unit","value":"currencyUSD"}]},{"matcher":{"id":"byName","options":"Exit"},"properties":[{"id":"unit","value":"currencyUSD"}]},{"matcher":{"id":"byRegexp","options":"/(Gross PnL|Trading fee|PIT stress|Net PnL)/"},"properties":[{"id":"unit","value":"currencyUSD"}]},{"matcher":{"id":"byName","options":"Net PnL"},"properties":[{"id":"thresholds","value":{"mode":"absolute","steps":[{"color":"red","value":null},{"color":"green","value":0}]}},{"id":"custom.cellOptions","value":{"type":"color-text"}}]}]},"options":{"showHeader":true,"cellHeight":"sm","sortBy":[{"displayName":"Closed at","desc":true}]}},
-
-    {"type":"row","title":"SYSTEM HEALTH · COMPACT","collapsed":false,"gridPos":{"h":1,"w":24,"x":0,"y":55},"panels":[]},
-    {"type":"text","title":"SAFETY BOUNDARY","gridPos":{"h":5,"w":5,"x":0,"y":56},"options":{"mode":"markdown","content":"### BOT ACTIVE · PAPER\nLive execution: **OFF**  \nLeverage: **x10 isolated**  \nFunding: **NOT INSTRUMENTED**"}},
-    {"type":"stat","title":"DRAWDOWN","gridPos":{"h":5,"w":4,"x":5,"y":56},"targets":[{"expr":"paper_futures_drawdown{strategy=\"ema_trend_x10\"}","refId":"A"}],"fieldConfig":{"defaults":{"unit":"percentunit","decimals":3,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":0.01},{"color":"red","value":0.02}]}},"overrides":[]},"options":{"colorMode":"value","graphMode":"area","textMode":"value"}},
-    {"type":"stat","title":"ERRORS · 15m","gridPos":{"h":5,"w":4,"x":9,"y":56},"targets":[{"expr":"sum(increase(paper_futures_errors_total[15m])) or vector(0)","refId":"A"}],"fieldConfig":{"defaults":{"decimals":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":1}]}},"overrides":[]},"options":{"colorMode":"background","graphMode":"none","textMode":"value"}},
-    {"type":"stat","title":"SIMULATED LIQUIDATIONS","gridPos":{"h":5,"w":5,"x":13,"y":56},"targets":[{"expr":"sum(paper_futures_liquidations_total)","refId":"A"}],"fieldConfig":{"defaults":{"decimals":0,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"red","value":1}]}},"overrides":[]},"options":{"colorMode":"background","graphMode":"none","textMode":"value"}},
-    {"type":"table","title":"LATEST RISK DECISION","gridPos":{"h":5,"w":6,"x":18,"y":56},"targets":[{"expr":"paper_futures_latest_risk_info","format":"table","instant":true,"refId":"A"}],"transformations":[{"id":"organize","options":{"excludeByName":{"Time":true,"Value":true,"__name__":true,"instance":true,"job":true,"direction":true},"indexByName":{"symbol":0,"decision":1,"reason":2},"renameByName":{"symbol":"Asset","decision":"Risk","reason":"Reason"}}}],"fieldConfig":{"defaults":{},"overrides":[]},"options":{"showHeader":true,"cellHeight":"sm"}}
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "type": "text",
+      "title": "",
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "# PAPER FUTURES · TRADER COMMAND CENTER\n**Wyckoff x10: PAPER** · **EMA: RESEARCH ONLY / NEW ENTRIES LOCKED** · NO LIVE EXECUTION  \nNet PnL includes **0.05% taker fee per fill** + **0.10% sell-side PIT stress** · Funding: **NOT INSTRUMENTED**"
+      }
+    },
+    {
+      "type": "row",
+      "title": "EXECUTIVE OVERVIEW",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "EMA EQUITY",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_equity{strategy=\"ema_trend_x10\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "OPEN PnL",
+      "description": "Estimated net liquidation PnL after modeled closing taker fee and sell-side PIT stress. Funding excluded. Zero means there is no open paper position.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 4,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_unrealized_pnl{strategy=\"ema_trend_x10\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "AVAILABLE CAPITAL",
+      "description": "Equity minus isolated margin currently in use.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 9,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_capital{strategy=\"ema_trend_x10\",metric=\"available_capital\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "RISK USED",
+      "description": "Current gross notional against configured portfolio limit.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 13,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_risk_utilization_fraction{strategy=\"ema_trend_x10\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "FEES + TAX",
+      "description": "Cumulative modeled trading fees and PIT stress. Historical rows before this model retain tax=0.",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 17,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_strategy_summary{metric=~\"fees|taxes\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "WYCKOFF PnL",
+      "description": "Separate 10,000 USDT virtual account; never summed with EMA.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_equity{strategy=\"wyckoff_x10\"}-10000",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "row",
+      "title": "SYSTEM DECISION ENGINE",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "WHAT THE SYSTEM IS DECIDING",
+      "description": "EMA evaluates BTC/ETH. Wyckoff x10 evaluates BTC/ETH/SOL in paper only; warm-up produces WAIT and can never open a position.",
+      "gridPos": {
+        "h": 8,
+        "w": 14,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_latest_signal_info",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "indexByName": {
+              "strategy": 0,
+              "symbol": 1,
+              "direction": 2,
+              "decision": 3,
+              "reason": 4
+            },
+            "renameByName": {
+              "strategy": "Strategy",
+              "symbol": "Asset",
+              "direction": "Bias",
+              "decision": "Decision",
+              "reason": "Why"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "field": "Closed at",
+            "reverse": true
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "WYCKOFF SIGNAL SCORE",
+      "description": "Real rule score. EMA confidence is deliberately not fabricated.",
+      "gridPos": {
+        "h": 8,
+        "w": 5,
+        "x": 14,
+        "y": 10
+      },
+      "targets": [
+        {
+          "expr": "wyckoff_adapter_score",
+          "legendFormat": "{{symbol}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 70
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      }
+    },
+    {
+      "type": "stat",
+      "title": "NEXT EVALUATION",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 10
+      },
+      "targets": [
+        {
+          "expr": "clamp_min(60-(time()-paper_futures_last_success_unixtime),0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DATA LIVE",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 14
+      },
+      "targets": [
+        {
+          "expr": "time()-paper_futures_last_success_unixtime",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 120
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "row",
+      "title": "OPEN POSITIONS",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "LIVE PAPER POSITIONS",
+      "gridPos": {
+        "h": 9,
+        "w": 18,
+        "x": 0,
+        "y": 19
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_info",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "paper_futures_position_price{level=\"entry\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "paper_futures_position_price{level=\"mark\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "paper_futures_unrealized_pnl",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "expr": "paper_futures_position_progress_percent{metric=\"roe\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "level": true,
+              "metric": true
+            },
+            "indexByName": {
+              "symbol": 0,
+              "side": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "status": 6,
+              "strategy": 7
+            },
+            "renameByName": {
+              "symbol": "Asset",
+              "side": "Side",
+              "Value #B": "Entry",
+              "Value #C": "Current",
+              "Value #D": "PnL",
+              "Value #E": "ROE %",
+              "status": "Status",
+              "strategy": "Strategy"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PnL"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ROE %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "lg"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "OPEN TRADES",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 19
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_positions)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "GROSS NOTIONAL",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 23
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_gross_notional)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 0,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "row",
+      "title": "EXIT PLAN & CAPITAL AT RISK",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "BTCUSDT · CURRENT EXIT PLAN",
+      "description": "Instant snapshot only; historical positions are deliberately excluded.",
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 0,
+        "y": 29
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_price{symbol=\"BTCUSDT\",level=~\"entry|mark|target|stop\"}",
+          "legendFormat": "{{side}} {{level}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "noValue": "NO OPEN POSITION"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "wideLayout": true
+      }
+    },
+    {
+      "type": "stat",
+      "title": "ETHUSDT · CURRENT EXIT PLAN",
+      "description": "Instant snapshot only; historical positions are deliberately excluded.",
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 6,
+        "y": 29
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_price{symbol=\"ETHUSDT\",level=~\"entry|mark|target|stop\"}",
+          "legendFormat": "{{side}} {{level}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 3,
+          "noValue": "NO OPEN POSITION"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "wideLayout": true
+      }
+    },
+    {
+      "type": "stat",
+      "title": "SOLUSDT · CURRENT EXIT PLAN",
+      "description": "Instant snapshot only; historical positions are deliberately excluded.",
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 12,
+        "y": 29
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_price{symbol=\"SOLUSDT\",level=~\"entry|mark|target|stop\"}",
+          "legendFormat": "{{side}} {{level}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "noValue": "NO OPEN POSITION"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal",
+        "wideLayout": true
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "PROGRESS TO EXIT",
+      "description": "Distance to TP/SL for open positions only. Empty means no open paper position.",
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 29
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_progress_percent{metric=~\"to_stop|to_target\"}",
+          "legendFormat": "{{symbol}} {{metric}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "noValue": "NO OPEN POSITION",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      }
+    },
+    {
+      "type": "stat",
+      "title": "RISK / REWARD",
+      "description": "Calculated for open positions only.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 38
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_position_detail{metric=\"risk_reward\"}",
+          "legendFormat": "{{symbol}} {{side}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "noValue": "NO OPEN POSITION",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "MAXIMUM LOSS · ALL OPEN POSITIONS",
+      "description": "Total stop-loss exposure across EMA and Wyckoff, including estimated closing fee and sell-side PIT stress. Funding excluded.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 38
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_capital{metric=\"maximum_loss\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "red"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "EXPECTED GAIN · ALL OPEN POSITIONS",
+      "description": "Total target gain across EMA and Wyckoff after estimated closing fee and sell-side PIT stress. Funding excluded.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 38
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_capital{metric=\"expected_gain\"})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "color": {
+            "mode": "fixedColor",
+            "fixedColor": "green"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "EMA DAILY LOSS BUFFER · 0 = RISK LOCKED",
+      "description": "Remaining EMA daily-loss allowance. Zero means new EMA entries are blocked by the risk engine; Wyckoff has a separate virtual account.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 38
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_capital{strategy=\"ema_trend_x10\",metric=\"daily_loss_remaining\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "green",
+                "value": 15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "row",
+      "title": "RECENT COMPLETED TRADES · LAST 20",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "TRADE HISTORY · FULL COST PnL",
+      "description": "Joined by trade_id. Net PnL includes opening and closing taker fees plus modeled sell-side PIT stress; funding remains excluded. Rows before 2026-08-17 08:05 UTC are PRE-COST MODEL and intentionally retain historical gross/tax defaults.",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_closed_trade_info",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"entry_price\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"exit_price\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"gross_pnl\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"fee\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"tax\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "F"
+        },
+        {
+          "expr": "sum by (trade_id,symbol,side,closed_at,exit_reason,strategy) (paper_futures_closed_trade_value{field=\"pnl\"} * on(trade_id,symbol,side) group_left(closed_at,exit_reason,strategy) paper_futures_closed_trade_info)",
+          "format": "table",
+          "instant": true,
+          "refId": "G"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "trade_id": true
+            },
+            "indexByName": {
+              "closed_at": 0,
+              "symbol": 1,
+              "side": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "Value #F": 7,
+              "Value #G": 8,
+              "exit_reason": 9,
+              "strategy": 10
+            },
+            "renameByName": {
+              "closed_at": "Closed at",
+              "symbol": "Asset",
+              "side": "Side",
+              "Value #B": "Entry",
+              "Value #C": "Exit",
+              "Value #D": "Gross PnL",
+              "Value #E": "Trading fee",
+              "Value #F": "PIT stress",
+              "Value #G": "Net PnL",
+              "exit_reason": "Exit reason",
+              "strategy": "Strategy"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 3
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Entry"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Exit"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/(Gross PnL|Trading fee|PIT stress|Net PnL)/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Net PnL"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "type": "row",
+      "title": "SYSTEM HEALTH · COMPACT",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "panels": []
+    },
+    {
+      "type": "text",
+      "title": "SAFETY BOUNDARY",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 56
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "### SAFETY BOUNDARY\nLive execution: **OFF**  \nWyckoff: **PAPER x10 isolated**  \nEMA opens: **RESEARCH LOCKED** · Gate: **ema_entry_gate_v2**  \nRisk-reducing exits remain enabled  \nFunding: **NOT INSTRUMENTED**"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "DRAWDOWN",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 5,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_drawdown{strategy=\"ema_trend_x10\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "ERRORS · 15m",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 9,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(paper_futures_errors_total[15m])) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "SIMULATED LIQUIDATIONS",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 13,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "sum(paper_futures_liquidations_total)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "type": "table",
+      "title": "LATEST RISK DECISION",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "paper_futures_latest_risk_info",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "direction": true
+            },
+            "indexByName": {
+              "symbol": 0,
+              "decision": 1,
+              "reason": 2
+            },
+            "renameByName": {
+              "symbol": "Asset",
+              "decision": "Risk",
+              "reason": "Reason"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
   ],
-  "refresh":"30s","schemaVersion":42,"tags":["trader-terminal","paper-futures","x10","ema","wyckoff","no-execution"],"templating":{"list":[]},
-  "time":{"from":"now-30m","to":"now"},"timezone":"browser","title":"Paper Futures Trader — EMA vs Wyckoff","uid":"paper-futures-x10","version":8
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": [
+    "trader-terminal",
+    "paper-futures",
+    "x10",
+    "ema",
+    "wyckoff",
+    "no-execution"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Paper Futures Trader — EMA vs Wyckoff",
+  "uid": "paper-futures-x10",
+  "version": 10
 }
