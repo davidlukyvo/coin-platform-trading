@@ -50,6 +50,26 @@ def resample_5m(minutes: pd.DataFrame) -> pd.DataFrame:
     return bars[bars["minute_bars"] == 5].reset_index()
 
 
+def internal_gaps(frame: pd.DataFrame, column: str, expected_seconds: int, kind: str) -> list[dict]:
+    """Return only gaps between observed records; trailing delay is freshness, not continuity."""
+    if frame.empty:
+        return []
+    timestamps = pd.to_datetime(frame[column], utc=True).drop_duplicates().sort_values().reset_index(drop=True)
+    result = []
+    for left, right in zip(timestamps.iloc[:-1], timestamps.iloc[1:]):
+        delta = int((right - left).total_seconds())
+        if delta <= expected_seconds:
+            continue
+        result.append({
+            "kind": kind,
+            "gapStart": (left + pd.Timedelta(seconds=expected_seconds)).isoformat(),
+            "gapEnd": right.isoformat(),
+            "missingBars": max(1, delta // expected_seconds - 1),
+            "intervalSeconds": expected_seconds,
+        })
+    return result
+
+
 def atr(frame: pd.DataFrame, period: int = 14) -> pd.Series:
     previous = frame["close"].shift(1)
     ranges = pd.concat([frame["high"] - frame["low"], (frame["high"] - previous).abs(),
@@ -83,6 +103,12 @@ class Journal:
                 evidence_json TEXT NOT NULL, created_at REAL NOT NULL);
               CREATE TABLE IF NOT EXISTS symbol_state(
                 symbol TEXT PRIMARY KEY, state_json TEXT NOT NULL, updated_at REAL NOT NULL);
+              CREATE TABLE IF NOT EXISTS metadata(
+                key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL);
+              CREATE TABLE IF NOT EXISTS continuity_events(
+                event_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, kind TEXT NOT NULL,
+                gap_start TEXT NOT NULL, gap_end TEXT NOT NULL, missing_bars INTEGER NOT NULL,
+                detected_at REAL NOT NULL);
             """)
         os.chmod(self.path, 0o600)
 
@@ -112,6 +138,41 @@ class Journal:
 
     def rows(self) -> int:
         return int(self.db.execute("SELECT count(*) FROM observations").fetchone()[0])
+
+    def continuity_baseline(self, candidate: pd.Timestamp) -> pd.Timestamp:
+        row = self.db.execute("SELECT value FROM metadata WHERE key='continuity_baseline'").fetchone()
+        if row:
+            return pd.Timestamp(row[0])
+        value = candidate.isoformat()
+        with self.db:
+            self.db.execute("INSERT INTO metadata VALUES(?,?,?)", ("continuity_baseline", value, time.time()))
+        return pd.Timestamp(value)
+
+    def record_continuity_gaps(self, symbol: str, gaps: list[dict], baseline: pd.Timestamp) -> int:
+        inserted = 0
+        with self.db:
+            for gap in gaps:
+                if pd.Timestamp(gap["gapStart"]) <= baseline:
+                    continue
+                event_id = hashlib.sha256(
+                    f"liquidity_continuity_v1:{symbol}:{gap['kind']}:{gap['gapStart']}:{gap['gapEnd']}".encode()
+                ).hexdigest()
+                cursor = self.db.execute(
+                    "INSERT OR IGNORE INTO continuity_events VALUES(?,?,?,?,?,?,?)",
+                    (event_id, symbol, gap["kind"], gap["gapStart"], gap["gapEnd"],
+                     gap["missingBars"], time.time()),
+                )
+                inserted += cursor.rowcount
+        return inserted
+
+    def continuity_summary(self, symbol: str) -> dict:
+        rows = self.db.execute(
+            "SELECT kind,count(*),coalesce(sum(missing_bars),0) FROM continuity_events "
+            "WHERE symbol=? GROUP BY kind", (symbol,),
+        ).fetchall()
+        by_kind = {row[0]: {"events": int(row[1]), "missingBars": int(row[2])} for row in rows}
+        events = sum(item["events"] for item in by_kind.values())
+        return {"continuityOk": events == 0, "eventCount": events, "byKind": by_kind}
 
 
 def divergence(primary: pd.DataFrame, peers: dict[str, pd.DataFrame], index: int, limits: Thresholds) -> list[dict]:
@@ -223,12 +284,21 @@ class LiquidityStructureAdapter:
     def run_once(self) -> dict:
         minute_frames = {symbol: load_closed_minutes(self.silver_root, self.exchange, symbol) for symbol in self.symbols}
         bars = {symbol: resample_5m(frame) for symbol, frame in minute_frames.items()}
+        latest_complete = [pd.Timestamp(frame["close_time"].max()) for frame in bars.values() if not frame.empty]
+        baseline = self.journal.continuity_baseline(min(latest_complete)) if latest_complete else pd.Timestamp.now(tz="UTC")
         scheduler, latest = [], []
         for symbol, frame in bars.items():
             if len(minute_frames[symbol]) < self.limits.min_minute_bars or len(frame) < 30:
                 scheduler.append({"symbol": symbol, "status": "WARMING_UP", "processedBars": 0,
-                                  "availableMinuteBars": len(minute_frames[symbol])})
+                                  "availableMinuteBars": len(minute_frames[symbol]), "continuityOk": False,
+                                  "continuityStatus": "WARMING_UP"})
                 continue
+            raw_gaps = internal_gaps(minute_frames[symbol], "open_time", 60, "UPSTREAM_MINUTE_GAP")
+            bar_gaps = internal_gaps(frame, "open_time", 300, "COMPLETE_5M_GAP")
+            self.journal.record_continuity_gaps(symbol, raw_gaps + bar_gaps, baseline)
+            continuity = self.journal.continuity_summary(symbol)
+            freshness_seconds = max(0.0, time.time() - pd.Timestamp(frame["close_time"].max()).timestamp())
+            freshness_status = "STALE" if freshness_seconds > self.limits.max_market_age_seconds else "FRESH"
             state = self.journal.load_state(symbol)
             last_time = self.journal.last_market_time(symbol)
             candidates = frame.index if last_time is None else frame.index[frame["close_time"] > last_time]
@@ -239,15 +309,30 @@ class LiquidityStructureAdapter:
             for index in range(start, len(frame)):
                 peer_frames = {name: peer for name, peer in bars.items() if name != symbol}
                 state, observation = evaluate_bar(frame, index, symbol, self.exchange, state, peer_frames, self.limits)
+                observation.update(continuityOk=continuity["continuityOk"],
+                                   continuityStatus="PASS" if continuity["continuityOk"] else "FAIL",
+                                   freshnessStatus=freshness_status,
+                                   continuityBaseline=baseline.isoformat())
                 processed += int(self.journal.save(symbol, state, observation))
             item = self.journal.latest(symbol)
-            if item: latest.append(item)
+            if item:
+                item.update(continuityOk=continuity["continuityOk"],
+                            continuityStatus="PASS" if continuity["continuityOk"] else "FAIL",
+                            freshnessStatus=freshness_status,
+                            continuityBaseline=baseline.isoformat())
+                latest.append(item)
             scheduler.append({"symbol": symbol, "status": "READY", "processedBars": processed,
-                              "availableMinuteBars": len(minute_frames[symbol])})
+                              "availableMinuteBars": len(minute_frames[symbol]),
+                              "continuityOk": continuity["continuityOk"],
+                              "continuityStatus": "PASS" if continuity["continuityOk"] else "FAIL",
+                              "continuityEvents": continuity["eventCount"],
+                              "continuityByKind": continuity["byKind"],
+                              "freshnessSeconds": freshness_seconds,
+                              "freshnessStatus": freshness_status})
         projection = {"mode": "SHADOW_ONLY", "liveTrading": False, "executionActionable": False,
                       "executionGatePassed": False, "adapterVersion": "liquidity_structure_research_v1",
                       "updatedAt": datetime.now(UTC).isoformat(), "signals": latest, "scheduler": scheduler,
-                      "journalRows": self.journal.rows()}
+                      "journalRows": self.journal.rows(), "continuityBaseline": baseline.isoformat()}
         temporary = self.output_root / "latest-signals.json.tmp"
         temporary.write_text(json.dumps(projection, separators=(",", ":")) + "\n", encoding="utf-8")
         os.replace(temporary, self.output_root / "latest-signals.json")

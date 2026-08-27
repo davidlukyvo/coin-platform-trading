@@ -121,7 +121,7 @@ class EvidenceFusionAdapter:
         if identity == "signalId":
             item["decision"] = item.get("authorityDecision", item.get("decision", "WAIT"))
             item["reason"] = item.get("authorityReason", item.get("reason", "unknown"))
-        item["continuityOk"] = scheduler.get("status") == "READY"
+        item["continuityOk"] = bool(scheduler.get("continuityOk", scheduler.get("status") == "READY"))
         return item
 
     def run_once(self, now: float | None = None) -> dict:

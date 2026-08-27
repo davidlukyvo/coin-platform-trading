@@ -1,6 +1,6 @@
 import pandas as pd
 
-from engine import Journal, Thresholds, evaluate_bar, is_pivot, resample_5m
+from engine import Journal, Thresholds, evaluate_bar, internal_gaps, is_pivot, resample_5m
 
 
 def bars(values):
@@ -23,6 +23,30 @@ def test_resample_accepts_only_complete_five_minute_bars():
                            "open": 1, "high": 2, "low": 0, "close": 1, "volume": 1})
     result = resample_5m(source)
     assert len(result) == 1 and result.iloc[0]["minute_bars"] == 5
+
+
+def test_continuity_distinguishes_internal_gap_from_trailing_freshness():
+    opened = pd.to_datetime(["2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z",
+                             "2026-01-01T00:03:00Z"])
+    frame = pd.DataFrame({"open_time": opened})
+    gaps = internal_gaps(frame, "open_time", 60, "UPSTREAM_MINUTE_GAP")
+    assert gaps == [{"kind": "UPSTREAM_MINUTE_GAP", "gapStart": "2026-01-01T00:02:00+00:00",
+                     "gapEnd": "2026-01-01T00:03:00+00:00", "missingBars": 1,
+                     "intervalSeconds": 60}]
+
+
+def test_continuity_baseline_ignores_old_gaps_and_persists_new_ones(tmp_path):
+    journal = Journal(tmp_path)
+    baseline = journal.continuity_baseline(pd.Timestamp("2026-01-01T00:05:00Z"))
+    gaps = [
+        {"kind": "UPSTREAM_MINUTE_GAP", "gapStart": "2026-01-01T00:02:00+00:00",
+         "gapEnd": "2026-01-01T00:03:00+00:00", "missingBars": 1},
+        {"kind": "UPSTREAM_MINUTE_GAP", "gapStart": "2026-01-01T00:07:00+00:00",
+         "gapEnd": "2026-01-01T00:08:00+00:00", "missingBars": 1},
+    ]
+    assert journal.record_continuity_gaps("BTCUSDT", gaps, baseline) == 1
+    assert journal.record_continuity_gaps("BTCUSDT", gaps, baseline) == 0
+    assert journal.continuity_summary("BTCUSDT")["continuityOk"] is False
 
 
 def test_sweep_mss_ote_sequence_is_shadow_only():
