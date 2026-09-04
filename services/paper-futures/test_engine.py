@@ -94,6 +94,18 @@ def test_ema_and_wyckoff_are_separate_accounts(tmp_path, monkeypatch):
     assert (tmp_path / "data" / "paper-futures.db").exists()
     assert state["recentClosedTrades"] == []
 
+def test_canary_uses_isolated_strategy_names_and_x2_notional(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: bars(True))
+    source = tmp_path / "wyckoff"; wyckoff(source, "ALLOW", "LONG")
+    runner = FuturesEngine(Path("unused"), source, tmp_path / "canary", "binance", ("BTCUSDT",),
+                           FuturesConfig(leverage=2, max_gross_notional=200),
+                           ema_symbols=(), wyckoff_symbols=("BTCUSDT",), strategy_suffix="x2_canary")
+    state = runner.run_once(); accounts = {x["strategy"]: x for x in state["accounts"]}
+    assert accounts["ema_trend_x2_canary"]["summary"]["fills"] == 0
+    assert 199 < accounts["wyckoff_x2_canary"]["gross_notional"] <= 200
+    assert state["leverage"] == 2
+
+
 
 def test_wyckoff_wait_does_not_open(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "load_latest_bars", lambda *_args, **_kwargs: bars(True))

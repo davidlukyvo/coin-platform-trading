@@ -69,7 +69,8 @@ wyckoff_symbols = symbols("FUTURES_WYCKOFF_SYMBOLS", ",".join(legacy_symbols))
 all_symbols = tuple(dict.fromkeys((*ema_symbols, *wyckoff_symbols)))
 engine = FuturesEngine(Path(os.getenv("SILVER_ROOT", "/data/silver")), Path(os.getenv("WYCKOFF_ROOT", "/data/wyckoff")),
                        Path(os.getenv("FUTURES_DATA_ROOT", "/data/paper-futures")), os.getenv("FUTURES_DATA_EXCHANGE", "binance"),
-                       all_symbols, config, ema_symbols=ema_symbols, wyckoff_symbols=wyckoff_symbols)
+                       all_symbols, config, ema_symbols=ema_symbols, wyckoff_symbols=wyckoff_symbols,
+                       strategy_suffix=os.getenv("FUTURES_STRATEGY_SUFFIX", "x10"))
 
 
 def execute():
@@ -162,7 +163,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/metrics": body, code, kind = generate_latest(), 200, "text/plain"
         elif self.path == "/healthz":
             body = json.dumps({"status": "healthy" if state["healthy"] else "unhealthy", "mode": "PAPER_FUTURES_ONLY",
-                               "liveTrading": False, "leverage": 10, "marginMode": "ISOLATED",
+                               "liveTrading": False, "executionActionable": False,
+                               "leverage": config.leverage, "marginMode": "ISOLATED",
                                "emaEntryMode": "PAPER" if config.ema_entry_enabled else "RESEARCH_ONLY",
                                "emaEntryGateVersion": "ema_entry_gate_v2", "error": state["error"]}).encode()
             code, kind = (200 if state["healthy"] else 503), "application/json"

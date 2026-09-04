@@ -6,7 +6,7 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures /host/liquidity-structure /host/evidence-fusion
+        mkdir -p /host/bronze /host/quarantine /host/postgres /host/prometheus /host/grafana /host/node-exporter-textfile /host/silver /host/silver-quarantine /host/checkpoints/silver /host/reports/silver /host/research /host/system-trading /host/paper /host/paper-ui /host/hybrid-signals /host/wyckoff-signals /host/paper-futures /host/paper-futures-canary /host/liquidity-structure /host/evidence-fusion
         chown -R 10001:10001 /host/bronze /host/quarantine
         chown -R 70:70 /host/postgres
         chown -R 65534:65534 /host/prometheus
@@ -25,6 +25,8 @@ services:
         chmod 2750 /host/wyckoff-signals
         chown -R 10009:10009 /host/paper-futures
         chmod 700 /host/paper-futures
+        chown -R 10009:10009 /host/paper-futures-canary
+        chmod 700 /host/paper-futures-canary
         chown -R 10010:10010 /host/liquidity-structure
         chmod 700 /host/liquidity-structure
         chown -R 10011:10011 /host/evidence-fusion
@@ -302,6 +304,64 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 384m
     cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
+  paper-futures-canary:
+    build:
+      context: ./services/paper-futures
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+      wyckoff-shadow-adapter:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SILVER_ROOT: /data/silver
+      WYCKOFF_ROOT: /data/wyckoff
+      FUTURES_DATA_ROOT: /data/paper-futures-canary
+      FUTURES_DATA_EXCHANGE: binance
+      FUTURES_SYMBOLS: BTCUSDT
+      FUTURES_EMA_SYMBOLS: ""
+      FUTURES_EMA_ENTRY_ENABLED: "false"
+      FUTURES_WYCKOFF_SYMBOLS: BTCUSDT
+      FUTURES_STRATEGY_SUFFIX: x2_canary
+      FUTURES_INTERVAL_SECONDS: "60"
+      FUTURES_LEVERAGE: "2"
+      FUTURES_STARTING_EQUITY: "1000"
+      FUTURES_MARGIN_PER_TRADE: "100"
+      FUTURES_FEE_BPS: "5"
+      FUTURES_PERSONAL_INCOME_TAX_BPS: "10"
+      FUTURES_SLIPPAGE_BPS: "2"
+      FUTURES_MAINTENANCE_MARGIN: "0.005"
+      FUTURES_MAX_GROSS_NOTIONAL: "200"
+      FUTURES_MAX_DAILY_LOSS: "20"
+      FUTURES_MAX_DRAWDOWN_FRACTION: "0.02"
+      FUTURES_MAX_TRADES_PER_DAY: "2"
+      FUTURES_MAX_MARKET_AGE_SECONDS: "3900"
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-signals:/data/wyckoff:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/paper-futures-canary:/data/paper-futures-canary
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 0.25
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}

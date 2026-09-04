@@ -184,17 +184,19 @@ class FuturesJournal:
 
 
 class FuturesEngine:
-    strategies = ("ema_trend_x10", "wyckoff_x10")
-
     def __init__(self, silver_root: Path, wyckoff_root: Path, data_root: Path, exchange: str,
                  symbols: tuple[str, ...], config: FuturesConfig,
                  ema_symbols: tuple[str, ...] | None = None,
-                 wyckoff_symbols: tuple[str, ...] | None = None):
+                 wyckoff_symbols: tuple[str, ...] | None = None,
+                 strategy_suffix: str = "x10"):
         self.silver_root, self.wyckoff_root, self.data_root = silver_root, wyckoff_root, data_root
         self.exchange, self.symbols, self.config = exchange, symbols, config
+        suffix = strategy_suffix.strip() or f"x{config.leverage:g}"
+        self.ema_strategy, self.wyckoff_strategy = f"ema_trend_{suffix}", f"wyckoff_{suffix}"
+        self.strategies = (self.ema_strategy, self.wyckoff_strategy)
         self.strategy_symbols = {
-            "ema_trend_x10": tuple(symbols if ema_symbols is None else ema_symbols),
-            "wyckoff_x10": tuple(symbols if wyckoff_symbols is None else wyckoff_symbols),
+            self.ema_strategy: tuple(symbols if ema_symbols is None else ema_symbols),
+            self.wyckoff_strategy: tuple(symbols if wyckoff_symbols is None else wyckoff_symbols),
         }
         self.journal = FuturesJournal(data_root / "paper-futures.db", self.strategies, config.starting_equity)
 
@@ -279,7 +281,7 @@ class FuturesEngine:
                     if liquidated: self._close(strategy, symbol, current["liquidation"], "LIQUIDATION", "isolated_liquidation")
                     elif stopped: self._close(strategy, symbol, current["stop"], "CLOSE", "stop_loss")
                     elif targeted: self._close(strategy, symbol, current["target"], "CLOSE", "take_profit")
-                if strategy == "ema_trend_x10":
+                if strategy == self.ema_strategy:
                     item = ema[symbol]; direction, bar, market_time = item["direction"], item["bar"], item["market_time"]
                     stop = price * (1 - self.config.ema_stop_fraction if direction == "LONG" else 1 + self.config.ema_stop_fraction)
                     target = price * (1 + self.config.ema_target_fraction if direction == "LONG" else 1 - self.config.ema_target_fraction)
@@ -295,7 +297,7 @@ class FuturesEngine:
                 if self.journal.processed(signal_id): continue
                 current = self.journal.position(strategy, symbol); decision, reason = "HOLD", source_reason
                 if time.time() - market_time > self.config.max_market_age_seconds: decision, reason = "REJECTED", "stale_market_data"
-                elif strategy == "ema_trend_x10" and not self.config.ema_entry_enabled:
+                elif strategy == self.ema_strategy and not self.config.ema_entry_enabled:
                     if current and current["side"] == direction:
                         decision, reason = "HOLD", "position_already_aligned"
                     else:
