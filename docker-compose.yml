@@ -493,6 +493,7 @@ services:
       - coin-platform
 
   liquidity-structure-adapter:
+    profiles: ["retired-research"]
     build:
       context: ./services/liquidity-structure-adapter
     restart: unless-stopped
@@ -532,6 +533,7 @@ services:
       - coin-platform
 
   evidence-fusion-adapter:
+    profiles: ["retired-research"]
     build:
       context: ./services/evidence-fusion-adapter
     restart: unless-stopped
