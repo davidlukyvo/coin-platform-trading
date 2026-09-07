@@ -102,8 +102,20 @@ def test_canary_uses_isolated_strategy_names_and_x2_notional(tmp_path, monkeypat
                            ema_symbols=(), wyckoff_symbols=("BTCUSDT",), strategy_suffix="x2_canary")
     state = runner.run_once(); accounts = {x["strategy"]: x for x in state["accounts"]}
     assert accounts["ema_trend_x2_canary"]["summary"]["fills"] == 0
-    assert 199 < accounts["wyckoff_x2_canary"]["gross_notional"] <= 200
+    assert accounts["wyckoff_x2_canary"]["entry_notional"] == 200
     assert state["leverage"] == 2
+
+
+def test_canary_limit_uses_entry_notional_not_mark_drift(tmp_path):
+    config = FuturesConfig(leverage=2, max_gross_notional=400, margin_per_trade=100,
+                           fee_bps=5, personal_income_tax_bps=10, slippage_bps=0)
+    runner = FuturesEngine(Path("unused"), tmp_path / "wyckoff", tmp_path / "canary", "binance", ("BTCUSDT",),
+                           config, ema_symbols=(), wyckoff_symbols=("BTCUSDT",), strategy_suffix="x2_canary")
+    runner._open("wyckoff_x2_canary", "BTCUSDT", "LONG", 100, 98, 104)
+    allowed, reason = runner._allowed("wyckoff_x2_canary", {"BTCUSDT": 150})
+    _, mark_gross, entry_gross = runner._equity("wyckoff_x2_canary", {"BTCUSDT": 150})
+    assert mark_gross == 300 and entry_gross == 200
+    assert allowed is True and reason == "allowed"
 
 
 

@@ -200,16 +200,17 @@ class FuturesEngine:
         }
         self.journal = FuturesJournal(data_root / "paper-futures.db", self.strategies, config.starting_equity)
 
-    def _equity(self, strategy: str, prices: dict[str, float]) -> tuple[float, float]:
-        account = self.journal.account(strategy); unrealized = gross = 0.0
+    def _equity(self, strategy: str, prices: dict[str, float]) -> tuple[float, float, float]:
+        account = self.journal.account(strategy); unrealized = mark_gross = entry_gross = 0.0
         for row in self.journal.positions(strategy):
             mark = prices.get(row["symbol"], row["mark"])
             notional = row["quantity"] * mark
             close_fee = notional * self.config.fee_bps / 10000
             close_tax = transaction_tax("CLOSE", row["side"], notional, self.config.personal_income_tax_bps)
             unrealized += position_pnl(row["side"], row["quantity"], row["entry"], mark) - close_fee - close_tax
-            gross += row["quantity"] * mark
-        return float(account["cash"]) + unrealized, gross
+            mark_gross += notional
+            entry_gross += row["quantity"] * row["entry"]
+        return float(account["cash"]) + unrealized, mark_gross, entry_gross
 
     def _close(self, strategy: str, symbol: str, price: float, action: str, reason: str) -> None:
         row = self.journal.position(strategy, symbol)
@@ -239,8 +240,8 @@ class FuturesEngine:
                                     (time.time(), strategy, symbol, "OPEN", side, quantity, fill, notional, fee, -(fee + tax), "signal_entry", tax, 0.0))
 
     def _allowed(self, strategy: str, prices: dict[str, float]) -> tuple[bool, str]:
-        equity, gross = self._equity(strategy, prices); account = self.journal.account(strategy)
-        if gross + self.config.margin_per_trade * self.config.leverage > self.config.max_gross_notional: return False, "max_gross_notional"
+        equity, _, entry_gross = self._equity(strategy, prices); account = self.journal.account(strategy)
+        if entry_gross + self.config.margin_per_trade * self.config.leverage > self.config.max_gross_notional: return False, "max_gross_notional"
         if float(account["day_start"]) - equity >= self.config.max_daily_loss: return False, "daily_loss_limit"
         if float(account["peak"]) > 0 and (float(account["peak"]) - equity) / float(account["peak"]) >= self.config.max_drawdown_fraction: return False, "drawdown_limit"
         if self.journal.trades_today(strategy) >= self.config.max_trades_per_day: return False, "max_trades_per_day"
@@ -314,7 +315,7 @@ class FuturesEngine:
                     self.journal.db.execute("INSERT INTO signals VALUES(?,?,?,?,?,?,?)", (signal_id, time.time(), strategy, symbol, direction, decision, reason))
         accounts = []
         for strategy in self.strategies:
-            equity, gross = self._equity(strategy, prices); account = self.journal.account(strategy); peak = max(float(account["peak"]), equity)
+            equity, gross, entry_gross = self._equity(strategy, prices); account = self.journal.account(strategy); peak = max(float(account["peak"]), equity)
             drawdown = max(0.0, (peak - equity) / peak) if peak else 0.0
             with self.journal.db:
                 self.journal.db.execute("UPDATE accounts SET peak=? WHERE strategy=?", (peak, strategy))
@@ -325,7 +326,8 @@ class FuturesEngine:
                 row["unrealized_pnl"] = (position_pnl(row["side"], row["quantity"], row["entry"], mark)
                                          - notional * self.config.fee_bps / 10000
                                          - transaction_tax("CLOSE", row["side"], notional, self.config.personal_income_tax_bps))
-            accounts.append({"strategy": strategy, "equity": equity, "cash": float(account["cash"]), "gross_notional": gross,
+            accounts.append({"strategy": strategy, "equity": equity, "cash": float(account["cash"]),
+                             "gross_notional": gross, "entry_notional": entry_gross,
                              "drawdown": drawdown, "positions": positions, "summary": self.journal.summary(strategy)})
         state = {"mode": "PAPER_FUTURES_ONLY", "liveTrading": False, "executionActionable": False,
                  "leverage": self.config.leverage, "marginMode": "ISOLATED", "fundingModel": "NOT_INSTRUMENTED",
