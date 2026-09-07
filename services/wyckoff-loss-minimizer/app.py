@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -39,6 +40,7 @@ def execute():
     except Exception as exc:
         ERRORS.labels(type(exc).__name__).inc()
         state.update(healthy=False, error=type(exc).__name__)
+        traceback.print_exc()
 
 
 def scheduler():
