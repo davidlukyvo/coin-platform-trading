@@ -368,6 +368,51 @@ services:
     networks:
       - coin-platform
 
+  wyckoff-loss-minimizer:
+    build:
+      context: ./services/wyckoff-loss-minimizer
+    restart: unless-stopped
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      silver-processor:
+        condition: service_healthy
+      wyckoff-shadow-adapter:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      WYCKOFF_SIGNALS_DB: /data/wyckoff/signals.db
+      SILVER_ROOT: /data/silver
+      RESEARCH_OUTPUT_ROOT: /data/loss-minimizer
+      RESEARCH_INTERVAL_SECONDS: "21600"
+      RESEARCH_SYMBOL: BTCUSDT
+      RESEARCH_NOTIONAL: "200"
+      RESEARCH_FEE_BPS: "5"
+      RESEARCH_TAX_BPS: "10"
+      RESEARCH_SLIPPAGE_BPS: "2"
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-signals:/data/wyckoff:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/silver:/data/silver:ro
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-loss-minimizer:/data/loss-minimizer
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8085/healthz',timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - coin-platform
+
   hybrid-signal-adapter:
     build:
       context: ./services/hybrid-signal-adapter
