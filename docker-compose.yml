@@ -372,6 +372,8 @@ services:
     build:
       context: ./services/wyckoff-loss-minimizer
     restart: unless-stopped
+    group_add:
+      - "10009"
     depends_on:
       storage-init:
         condition: service_completed_successfully
