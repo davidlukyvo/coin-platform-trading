@@ -50,6 +50,9 @@ def test_gate_v2_keeps_no_trade_champion_when_data_is_negative():
     assert report["recommendation"] == "NO_TRADE_RESEARCH_LOCK"
     assert report["qualifiedCandidates"] == []
     assert "lossDiagnostics" in report
+    assert all(item["validation"]["closed"] > 0 for item in report["bestResearchCandidates"])
+    assert all("event=SPRING AND event=UPTHRUST" != item["gate"]
+               for item in report["bestResearchCandidates"])
 
 
 def test_rejection_reasons_require_samples_profit_and_drawdown():

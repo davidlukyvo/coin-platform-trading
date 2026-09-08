@@ -180,6 +180,18 @@ def rejection_reasons(item: dict, config: ResearchConfig) -> list[str]:
     return reasons
 
 
+def compatible(left: str, right: str) -> bool:
+    exclusive = (("event=",), ("phase=",), ("long_only", "short_only"),
+                 ("hourly_trend_aligned", "hourly_counter_trend"))
+    for family in exclusive:
+        if len(family) == 1:
+            if left.startswith(family[0]) and right.startswith(family[0]):
+                return False
+        elif left in family and right in family:
+            return False
+    return True
+
+
 def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -> dict:
     trades = outcomes(signals, bars, config)
     count = len(trades)
@@ -193,7 +205,8 @@ def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -
                        key=lambda name: stats(trades[split["train"] & atoms[name]])["netPnl"], reverse=True)[:15]
     for index, left in enumerate(atom_rank):
         for right in atom_rank[index+1:]:
-            candidates[f"{left} AND {right}"] = atoms[left] & atoms[right]
+            if compatible(left, right):
+                candidates[f"{left} AND {right}"] = atoms[left] & atoms[right]
     evaluations = []
     for name, mask in candidates.items():
         item = {"gate": name, **{segment: stats(trades[mask & segment_mask]) for segment, segment_mask in split.items()}}
@@ -201,7 +214,13 @@ def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -
         item["qualified"] = not item["rejectionReasons"]
         evaluations.append(item)
     qualified = [item for item in evaluations if item["qualified"]]
-    ranked = sorted(evaluations, key=lambda item: (item["validation"]["netPnl"], item["train"]["netPnl"]), reverse=True)
+    evidence_candidates = [item for item in evaluations if item["validation"]["closed"] > 0]
+    ranked = sorted(evidence_candidates,
+                    key=lambda item: (item["qualified"],
+                                      item["validation"]["closed"] >= config.min_validation_closed,
+                                      item["outOfSample"]["closed"] >= config.min_oos_closed,
+                                      item["validation"]["netPnl"], item["train"]["netPnl"]),
+                    reverse=True)
     last_signal = str(signals.signal_id.iloc[-1]) if not signals.empty else "none"
     report_id = hashlib.sha256(f"{VERSION}:{last_signal}:{config}".encode()).hexdigest()
     return {"reportId": report_id, "mode": "SHADOW_RESEARCH_ONLY", "liveTrading": False,
