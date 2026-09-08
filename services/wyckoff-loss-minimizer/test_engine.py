@@ -3,7 +3,7 @@ import sqlite3
 
 import pandas as pd
 
-from engine import ResearchConfig, analyze, outcomes, persist
+from engine import ResearchConfig, analyze, outcomes, persist, rejection_reasons
 
 
 def sample_signals(count=50):
@@ -41,3 +41,22 @@ def test_persist_is_exactly_once(tmp_path):
     assert persist(report, tmp_path) is True
     assert persist(report, tmp_path) is False
     assert len((tmp_path / "reports.jsonl").read_text().splitlines()) == 1
+
+
+def test_gate_v2_keeps_no_trade_champion_when_data_is_negative():
+    report = analyze(sample_signals(51), sample_bars(), ResearchConfig())
+    assert report["version"] == "wyckoff_loss_minimizer_gate_v2"
+    assert report["champion"] == {"gate": "NO_TRADE", "netPnl": 0.0, "maxDrawdown": 0.0}
+    assert report["recommendation"] == "NO_TRADE_RESEARCH_LOCK"
+    assert report["qualifiedCandidates"] == []
+    assert "lossDiagnostics" in report
+
+
+def test_rejection_reasons_require_samples_profit_and_drawdown():
+    bad = {segment: {"closed": 1, "netPnl": -1, "maxDrawdown": 6, "profitFactor": 0.0}
+           for segment in ("train", "validation", "outOfSample")}
+    reasons = rejection_reasons(bad, ResearchConfig())
+    assert "validation_insufficient_sample" in reasons
+    assert "outOfSample_net_not_positive" in reasons
+    assert "outOfSample_drawdown_exceeded" in reasons
+    assert "validation_profit_factor_below_1.1" in reasons

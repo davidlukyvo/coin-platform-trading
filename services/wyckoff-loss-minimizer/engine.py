@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 
-VERSION = "wyckoff_loss_minimizer_v1"
+VERSION = "wyckoff_loss_minimizer_gate_v2"
 
 
 @dataclass(frozen=True)
@@ -103,6 +103,9 @@ def stats(frame: pd.DataFrame) -> dict:
     pnl = [float(row.net_pnl) for row in closed]
     curve = np.cumsum([0.0] + pnl)
     drawdown = np.maximum.accumulate(curve) - curve
+    gross_profit = sum(value for value in pnl if value > 0)
+    gross_loss = -sum(value for value in pnl if value <= 0)
+    profit_factor = gross_profit / gross_loss if gross_loss else (999.0 if gross_profit else 0.0)
     return {"eligible": len(frame), "taken": len(selected), "closed": len(closed),
             "wins": sum(value > 0 for value in pnl), "losses": sum(value <= 0 for value in pnl),
             "unresolved": sum(not row.resolved for row in selected),
@@ -110,6 +113,8 @@ def stats(frame: pd.DataFrame) -> dict:
             "fees": round(sum(float(row.fees) for row in closed), 6),
             "taxes": round(sum(float(row.taxes) for row in closed), 6),
             "netPnl": round(sum(pnl), 6), "maxDrawdown": round(float(drawdown.max()), 6),
+            "averageNetPnl": round(sum(pnl) / len(pnl), 6) if pnl else 0.0,
+            "profitFactor": round(float(profit_factor), 6),
             "winRate": round(sum(value > 0 for value in pnl) / len(pnl), 6) if pnl else 0.0}
 
 
@@ -123,16 +128,56 @@ def candidate_masks(frame: pd.DataFrame) -> dict[str, pd.Series]:
         masks[f"score>={threshold}"] = frame.score >= threshold
     for threshold in (2, 2.5, 3, 4):
         masks[f"rr>={threshold}"] = frame.rr >= threshold
-    for threshold in (1, 1.25, 1.5):
-        masks[f"relativeVolume15m>={threshold}"] = frame.relativeVolume15m >= threshold
-    for threshold in (1, 1.2, 1.35):
-        masks[f"spreadRatio15m>={threshold}"] = frame.spreadRatio15m >= threshold
-    masks["hourly_trend_aligned"] = (((frame.direction == "LONG") & (frame.hourlyContext == "BULLISH")) |
-                                      ((frame.direction == "SHORT") & (frame.hourlyContext == "BEARISH")))
-    masks["hourly_slope_aligned"] = (((frame.direction == "LONG") & (frame.hourlyEMA20Slope > 0)) |
-                                      ((frame.direction == "SHORT") & (frame.hourlyEMA20Slope < 0)))
-    masks["context_aligned"] = frame.contextAligned == True
+    if "phase" in frame:
+        for phase in sorted(frame.phase.dropna().unique()):
+            masks[f"phase={phase}"] = frame.phase == phase
+    if "relativeVolume15m" in frame:
+        for threshold in (1, 1.25, 1.5):
+            masks[f"relativeVolume15m>={threshold}"] = frame.relativeVolume15m >= threshold
+    if "spreadRatio15m" in frame:
+        for lower, upper in ((0.8, 1.2), (1.0, 1.5), (1.2, 2.0)):
+            masks[f"spreadRatio15m={lower}-{upper}"] = frame.spreadRatio15m.between(lower, upper)
+    if "hourlyContext" in frame:
+        masks["hourly_trend_aligned"] = (((frame.direction == "LONG") & (frame.hourlyContext == "BULLISH")) |
+                                          ((frame.direction == "SHORT") & (frame.hourlyContext == "BEARISH")))
+        masks["hourly_counter_trend"] = (((frame.direction == "LONG") & (frame.hourlyContext == "BEARISH")) |
+                                          ((frame.direction == "SHORT") & (frame.hourlyContext == "BULLISH")))
+    if "hourlyEMA20Slope" in frame:
+        masks["hourly_slope_aligned"] = (((frame.direction == "LONG") & (frame.hourlyEMA20Slope > 0)) |
+                                          ((frame.direction == "SHORT") & (frame.hourlyEMA20Slope < 0)))
+    if "contextAligned" in frame:
+        masks["context_aligned"] = frame.contextAligned == True
     return masks
+
+
+def diagnostics(frame: pd.DataFrame) -> dict:
+    groups = {}
+    dimensions = [name for name in ("direction", "event", "phase", "hourlyContext") if name in frame]
+    for dimension in dimensions:
+        groups[dimension] = {str(value): stats(part) for value, part in frame.groupby(dimension, dropna=False)}
+    if "spreadRatio15m" in frame:
+        bands = pd.cut(frame.spreadRatio15m, [-np.inf, 0.8, 1.2, 2.0, np.inf],
+                       labels=["compressed", "normal", "expanded", "extreme"])
+        groups["volatilityRegime"] = {str(value): stats(frame[bands == value]) for value in bands.dropna().unique()}
+    return groups
+
+
+def rejection_reasons(item: dict, config: ResearchConfig) -> list[str]:
+    reasons = []
+    minimums = {"train": config.min_train_closed, "validation": config.min_validation_closed,
+                "outOfSample": config.min_oos_closed}
+    for segment, minimum in minimums.items():
+        if item[segment]["closed"] < minimum:
+            reasons.append(f"{segment}_insufficient_sample")
+        if item[segment]["netPnl"] <= 0:
+            reasons.append(f"{segment}_net_not_positive")
+    if item["outOfSample"]["maxDrawdown"] > config.max_oos_drawdown:
+        reasons.append("outOfSample_drawdown_exceeded")
+    if item["validation"]["profitFactor"] < 1.1:
+        reasons.append("validation_profit_factor_below_1.1")
+    if item["outOfSample"]["profitFactor"] < 1.1:
+        reasons.append("outOfSample_profit_factor_below_1.1")
+    return reasons
 
 
 def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -> dict:
@@ -152,11 +197,8 @@ def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -
     evaluations = []
     for name, mask in candidates.items():
         item = {"gate": name, **{segment: stats(trades[mask & segment_mask]) for segment, segment_mask in split.items()}}
-        item["qualified"] = (item["train"]["closed"] >= config.min_train_closed and
-                             item["validation"]["closed"] >= config.min_validation_closed and
-                             item["outOfSample"]["closed"] >= config.min_oos_closed and
-                             all(item[part]["netPnl"] > 0 for part in ("train", "validation", "outOfSample")) and
-                             item["outOfSample"]["maxDrawdown"] <= config.max_oos_drawdown)
+        item["rejectionReasons"] = rejection_reasons(item, config)
+        item["qualified"] = not item["rejectionReasons"]
         evaluations.append(item)
     qualified = [item for item in evaluations if item["qualified"]]
     ranked = sorted(evaluations, key=lambda item: (item["validation"]["netPnl"], item["train"]["netPnl"]), reverse=True)
@@ -168,11 +210,20 @@ def analyze(signals: pd.DataFrame, bars: pd.DataFrame, config: ResearchConfig) -
             "sourceSignals": count, "lastSignalId": last_signal,
             "method": {"split": "chronological_60_20_20", "positionPolicy": "non_overlapping",
                        "sameBarPolicy": "STOP_FIRST_CONSERVATIVE", "funding": "NOT_INSTRUMENTED",
-                       "selection": "train_validation_only_then_reveal_oos"},
+                       "selection": "train_rank_then_validation_then_reveal_oos",
+                       "candidateComplexity": "fixed_threshold_atoms_and_max_two_clause_pairs"},
             "costs": {"notional": config.notional, "feeBps": config.fee_bps,
                       "taxBps": config.tax_bps, "slippageBps": config.slippage_bps},
             "baseline": {name: stats(trades[mask]) for name, mask in split.items()},
+            "lossDiagnostics": diagnostics(trades),
+            "qualificationPolicy": {"minimumClosed": {"train": config.min_train_closed,
+                                                         "validation": config.min_validation_closed,
+                                                         "outOfSample": config.min_oos_closed},
+                                    "minimumProfitFactor": 1.1,
+                                    "maximumOosDrawdown": config.max_oos_drawdown,
+                                    "allSegmentsMustHavePositiveNetPnl": True},
             "qualifiedCandidates": qualified, "bestResearchCandidates": ranked[:10],
+            "champion": {"gate": "NO_TRADE", "netPnl": 0.0, "maxDrawdown": 0.0},
             "recommendation": "NO_TRADE_RESEARCH_LOCK" if not qualified else "QUALIFIED_SHADOW_CANDIDATE"}
 
 
