@@ -844,6 +844,26 @@ services:
     networks:
       - coin-platform
 
+  wyckoff-historical-replay:
+    profiles: ["offline-research"]
+    build:
+      context: .
+      dockerfile: services/wyckoff-historical-replay/Dockerfile
+    user: "10013:10013"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ${COIN_DATA_ROOT:-/data/coin-platform}/wyckoff-historical-replay:/data/replay
+    mem_limit: 2g
+    cpus: 1.5
+    networks:
+      - coin-platform
+
 networks:
   coin-platform:
     driver: bridge
