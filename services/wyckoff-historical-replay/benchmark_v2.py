@@ -17,7 +17,7 @@ def load(timeframe):
 def assess(trades,start,end):
     bounds=pd.date_range(start.floor("D"),end.ceil("D"),periods=5); seg=[stats(trades[(trades.market_time>=bounds[i])&(trades.market_time<bounds[i+1])]) for i in range(4)]
     overall=stats(trades); positive=sum(x["closed"]>=8 and x["netPnl"]>0 for x in seg)
-    qualified=overall["closed"]>=40 and overall["netPnl"]>0 and overall["profitFactor"]>=1.15 and positive>=3
+    qualified=overall["closed"]>=40 and overall["netPnl"]>0 and overall["profitFactor"]>=1.15 and positive>=3 and overall["maxDrawdown"]<=20
     return overall,seg,positive,qualified
 def main():
     config=ResearchConfig(); all_results=[]; source=None; cutoff=None
